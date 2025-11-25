@@ -1,0 +1,40 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-lua-resty
+  namespace: default
+  annotations:
+    # Lua script annotations - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location /lua-test {
+        content_by_lua_block {
+          ngx.say("Hello from Lua!")
+          ngx.say("Request method: ", ngx.var.request_method)
+          ngx.say("Request URI: ", ngx.var.request_uri)
+        }
+      }
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      access_by_lua_block {
+        local headers = ngx.req.get_headers()
+        if headers["X-Custom-Auth"] ~= "valid-token" then
+          ngx.status = 403
+          ngx.say("Forbidden")
+          ngx.exit(403)
+        end
+      }
+    nginx.ingress.kubernetes.io/lua-resty-waf: "active"
+    nginx.ingress.kubernetes.io/lua-resty-waf-debug: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: lua.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80

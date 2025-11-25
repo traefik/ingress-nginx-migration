@@ -1,0 +1,24 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-mirror
+  namespace: default
+  annotations:
+    # Traffic mirroring annotations - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/mirror-target: "http://whoami-mirror.default.svc.cluster.local"
+    nginx.ingress.kubernetes.io/mirror-request-body: "on"
+    nginx.ingress.kubernetes.io/mirror-host: "mirror.localhost"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: mirror.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80

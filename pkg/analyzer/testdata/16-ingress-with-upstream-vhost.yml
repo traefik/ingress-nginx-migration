@@ -1,0 +1,30 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-upstream-vhost
+  namespace: default
+  annotations:
+    # Upstream virtual host annotations - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/upstream-vhost: "internal-service.example.com"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri consistent"
+    nginx.ingress.kubernetes.io/upstream-hash-by-subset: "true"
+    nginx.ingress.kubernetes.io/upstream-hash-by-subset-size: "3"
+    nginx.ingress.kubernetes.io/upstream-keepalive-connections: "32"
+    nginx.ingress.kubernetes.io/upstream-keepalive-requests: "100"
+    nginx.ingress.kubernetes.io/upstream-keepalive-timeout: "60s"
+    nginx.ingress.kubernetes.io/upstream-max-fails: "3"
+    nginx.ingress.kubernetes.io/upstream-fail-timeout: "10s"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: upstream-vhost.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80

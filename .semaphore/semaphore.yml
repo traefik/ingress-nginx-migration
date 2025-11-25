@@ -1,0 +1,84 @@
+version: v1.0
+name: Formica Exsecta
+agent:
+  machine:
+    type: e1-standard-4
+    os_image: ubuntu2004
+fail_fast:
+  stop:
+    when: "branch != 'master'"
+
+auto_cancel:
+  queued:
+    when: "branch != 'master'"
+  running:
+    when: "branch != 'master'"
+
+global_job_config:
+  secrets:
+    - name: google-secrets
+    - name: github
+    - name: gomod-proxy
+  prologue:
+    commands:
+      - curl -sSfL https://raw.githubusercontent.com/ldez/semgo/master/godownloader.sh | sudo sh -s -- -b "/usr/local/bin"
+      - sudo semgo go1.25
+      - export "GOPATH=$(go env GOPATH)"
+      - export "SEMAPHORE_GIT_DIR=${GOPATH}/src/github.com/traefik/${SEMAPHORE_PROJECT_NAME}"
+      - export "PATH=${GOPATH}/bin:${PATH}"
+      - mkdir -vp "${SEMAPHORE_GIT_DIR}" "${GOPATH}/bin"
+      - cat /home/semaphore/datas/traefiker-keyfile.json | docker login -u _json_key --password-stdin https://gcr.io
+      - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "${GOPATH}/bin" v2.5.0
+      - checkout
+      - cache restore "mod-${SEMAPHORE_PROJECT_NAME}-${SEMAPHORE_GIT_BRANCH}-$(checksum go.mod),mod-${SEMAPHORE_PROJECT_NAME}-$(checksum go.mod),mod-${SEMAPHORE_PROJECT_NAME}"
+      - docker buildx create --use
+blocks:
+  - name: Warm cache
+    dependencies: []
+    task:
+      jobs:
+        - name: Warm cache
+          commands:
+            - go mod tidy
+            - git diff --exit-code go.mod
+            - git diff --exit-code go.sum
+            - go mod download
+            - cache store "mod-${SEMAPHORE_PROJECT_NAME}-${SEMAPHORE_GIT_BRANCH}-$(checksum go.mod)" "${GOPATH}/pkg/mod"
+            - cache store "mod-${SEMAPHORE_PROJECT_NAME}-$(checksum go.mod)" "${GOPATH}/pkg/mod"
+            - cache store "mod-${SEMAPHORE_PROJECT_NAME}" "${GOPATH}/pkg/mod"
+  - name: Build on branches
+    dependencies: ["Warm cache"]
+    run:
+      when: "branch = 'master'"
+    task:
+      env_vars:
+        - name: DOCKER_BUILDX_ARGS
+          value: "--push"
+      jobs:
+        - name: Build on branches
+          commands:
+            - make
+            - make multi-arch-image-latest
+            - make multi-arch-image-${SEMAPHORE_GIT_BRANCH}-${SEMAPHORE_GIT_SHA:0:7}-$(date +%s)
+  - name: Build on PR
+    dependencies: ["Warm cache"]
+    run:
+      when: "pull_request =~ '.*'"
+    task:
+      jobs:
+        - name: Run build
+          commands:
+            - make
+  - name: Tag - Build release
+    dependencies: ["Warm cache"]
+    run:
+      when: "tag =~ '^v'"
+    task:
+      env_vars:
+        - name: DOCKER_BUILDX_ARGS
+          value: "--push"
+      jobs:
+        - name: Tag - Build release
+          commands:
+            - make
+            - make multi-arch-image-${SEMAPHORE_GIT_TAG_NAME}
