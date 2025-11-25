@@ -1,0 +1,42 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-auth-tls
+  namespace: default
+  annotations:
+    # TLS client authentication annotations - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/auth-tls-secret: "default/ca-secret"
+    nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
+    nginx.ingress.kubernetes.io/auth-tls-verify-depth: "1"
+    nginx.ingress.kubernetes.io/auth-tls-error-page: "https://example.com/error"
+    nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream: "true"
+    nginx.ingress.kubernetes.io/auth-tls-match-cn: "*.example.com"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - authtls.localhost
+      secretName: tls-secret
+  rules:
+    - host: authtls.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ca-secret
+  namespace: default
+type: Opaque
+data:
+  # Dummy CA certificate data
+  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t

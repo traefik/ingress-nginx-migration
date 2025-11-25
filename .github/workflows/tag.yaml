@@ -1,0 +1,28 @@
+name: "Release a tag"
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+      - name: Unshallow
+        run: git fetch --prune --unshallow
+      - name: Build release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
+          MTLS_CLIENT_CERT_B64: ${{ secrets.MTLS_CLIENT_CERT_B64 }}
+          MTLS_CLIENT_KEY_B64: ${{ secrets.MTLS_CLIENT_KEY_B64 }}
+          MTLS_CA_CERT_B64: ${{ secrets.MTLS_CA_CERT_B64 }}

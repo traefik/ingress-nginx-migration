@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nginx Ingress Migration Report - Traefik</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/prismjs@1.30.0/themes/prism.css" rel="stylesheet" id="prism-light" />
+    <link href="https://unpkg.com/prismjs@1.30.0/themes/prism-tomorrow.css" rel="stylesheet" id="prism-dark" disabled />
+    <style>
+        :root {
+            --color-01dp: white;
+            --color-02dp: #fafafa;
+            --color-03dp: #f5f5f5;
+            --color-bg-body: #F2F2F3;
+            --color-button-border: hsl(208, 9.0%, 73.0%);
+            --color-button-hover-bg: rgba(255, 255, 255, 0.15);
+            --color-button-primary-text: white;
+            --color-button-text: hsla(0, 0%, 0%, 0.54);
+            --color-danger: hsl(347, 100%, 60.0%);
+            --color-hiContrast: black;
+            --color-input-bg: white;
+            --color-input-border: #B4BBC1;
+            --color-logo-text: #04192D;
+            --color-primary: hsl(68, 53.0%, 36.0%);
+            --color-primary-hover: hsl(68, 53.0%, 42.0%);
+            --color-text: hsla(0, 0%, 0%, 0.74);
+            --color-text-subtle: hsla(0, 0%, 0%, 0.51);
+            --font-size-0: 11px;
+            --font-size-1: 12px;
+            --font-size-2: 13px;
+            --font-size-3: 14px;
+            --font-size-4: 16px;
+            --font-size-5: 18px;
+            --font-size-6: 20px;
+            --font-size-7: 22px;
+            --font-size-8: 24px;
+            --font-size-9: 26px;
+            --font-size-10: 28px;
+            --font-size-11: 32px;
+            --font-size-12: 38px;
+            --height-1: 4px;
+            --height-2: 8px;
+            --height-3: 16px;
+            --height-4: 20px;
+            --height-5: 24px;
+            --height-6: 32px;
+            --height-7: 40px;
+            --spacing-1: 4px;
+            --spacing-2: 8px;
+            --spacing-3: 16px;
+            --spacing-4: 20px;
+            --spacing-5: 24px;
+            --spacing-6: 32px;
+            --spacing-7: 48px;
+            --radius-1: 4px;
+            --radius-2: 6px;
+            --radius-3: 8px;
+            --radius-4: 12px;
+        }
+
+        [data-theme="dark"] {
+            --color-01dp: #1E2A38;
+            --color-02dp: #23323F;
+            --color-03dp: #283A47;
+            --color-bg-body: #192734;
+            --color-button-border: hsl(208, 11.0%, 45.0%);
+            --color-button-primary-text: hsl(209, 88.0%, 7.0%);
+            --color-button-text: hsla(0, 0%, 100%, 0.74);
+            --color-hiContrast: white;
+            --color-input-bg: #14202A;
+            --color-input-border: #67737F;
+            --color-logo-text: white;
+            --color-primary: hsl(68, 79.0%, 60.0%);
+            --color-primary-hover: hsl(68, 79.0%, 66.0%);
+            --color-text: hsla(0, 0%, 100%, 0.74);
+            --color-text-subtle: hsla(0, 0%, 100%, 0.51);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-weight: 400;
+            line-height: 1.5;
+            color: var(--color-text);
+            background-color: var(--color-bg-body);
+        }
+
+        h1 {
+            font-size: var(--font-size-10);
+            font-weight: 400;
+            line-height: 1.33;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: var(--spacing-3) var(--spacing-3) 0;
+        }
+
+        .card {
+            display: block;
+            position: relative;
+            padding: var(--spacing-3);
+            border-radius: var(--radius-3);
+            border: none;
+        }
+
+        .card-no-padding {
+            padding: 0;
+        }
+
+        .card-elevation-1 {
+            background: var(--color-01dp);
+            box-shadow: rgba(0, 0, 0, 0.2) 0px 1px 5px 0px, rgba(0, 0, 0, 0.12) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px;
+        }
+
+        .card-elevation-2 {
+            background: var(--color-02dp);
+            box-shadow: rgba(0, 0, 0, 0.2) 0px 2px 4px -1px, rgba(0, 0, 0, 0.12) 0px 1px 10px 0px, rgba(0, 0, 0, 0.14) 0px 4px 5px 0px;
+        }
+
+        .card-elevation-3 {
+            background: var(--color-03dp);
+            box-shadow: rgba(0, 0, 0, 0.2) 0px 3px 5px -1px, rgba(0, 0, 0, 0.12) 0px 1px 18px 0px, rgba(0, 0, 0, 0.14) 0px 6px 10px 0px;
+        }
+
+        .header {
+            margin-bottom: var(--spacing-5);
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-2);
+        }
+
+        .header h1 {
+            font-size: var(--font-size-12);
+        }
+
+        .header-description {
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-4);
+        }
+
+        .header-description-sub-info {
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-2);
+            font-style: italic;
+            margin-top: 8px;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-1);
+            background: transparent;
+            color: var(--color-button-text);
+            border: 2px solid var(--color-button-border);
+            border-radius: var(--radius-3);
+            height: var(--height-6);
+            padding: 0 var(--spacing-3);
+            font-size: var(--font-size-3);
+            line-height: 1;
+            cursor: pointer;
+            font-family: 'Rubik', sans-serif;
+            font-weight: 400;
+        }
+
+        .button:hover {
+            background: var(--color-button-hover-bg);
+        }
+
+        .button-primary {
+            background: var(--color-primary);
+            color: var(--color-button-primary-text);
+            border: none;
+        }
+
+        .button-primary:hover {
+            background: var(--color-primary-hover);
+        }
+
+        .button-small {
+            height: var(--height-5);
+            padding: 0 var(--spacing-2);
+            font-size: var(--font-size-1);
+            line-height: var(--height-5);
+        }
+
+        .button-large {
+            height: var(--height-7);
+            padding: 0 var(--spacing-3);
+            font-size: var(--font-size-3);
+            line-height: var(--height-7);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: var(--spacing-3);
+            margin-bottom: var(--spacing-5);
+        }
+
+        .stat-card {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            gap: var(--spacing-3);
+            align-items: flex-start;
+        }
+
+        .stat-icon {
+            font-size: 28px;
+            flex-shrink: 0;
+            line-height: 1;
+        }
+
+        .stat-card-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-size: var(--font-size-10);
+            font-weight: 700;
+            color: var(--color-text);
+            margin-bottom: var(--spacing-1);
+            line-height: 1;
+        }
+
+        .stat-card.compatible .stat-value {
+            color: #10b981;
+        }
+
+        .stat-card.incompatible .stat-value {
+            color: var(--color-danger);
+        }
+
+        .stat-label-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: var(--spacing-2);
+        }
+
+        .stat-label {
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-3);
+            font-weight: 500;
+        }
+        .stat-breakdown {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--color-border);
+        }
+        .stat-breakdown-label {
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-2);
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+        .stat-breakdown-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+            font-size: var(--font-size-2);
+        }
+        .breakdown-class-name {
+            color: var(--color-text);
+            font-weight: 500;
+        }
+        .breakdown-count {
+            color: var(--color-text-subtle);
+            font-weight: 600;
+            font-family: 'SF Mono', Monaco, Inconsolata, 'Roboto Mono', Consolas, 'Courier New', monospace;
+        }
+
+        .progress-label {
+            font-size: var(--font-size-3);
+            font-weight: 500;
+            color: var(--color-text-subtle);
+        }
+
+        .progress-bar {
+            background-color: var(--color-03dp);
+            border-radius: var(--radius-3);
+            height: var(--height-2);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: var(--radius-3);
+            background: var(--color-primary);
+        }
+
+        .stat-card.compatible .progress-fill {
+            background: #10b981;
+        }
+
+        .stat-card.incompatible .progress-fill {
+            background: var(--color-danger);
+        }
+
+        .stat-insights {
+            display: flex;
+            flex-direction: column;
+            margin-top: var(--spacing-2);
+        }
+
+        .insight-item {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-2);
+            font-size: var(--font-size-2);
+        }
+
+        .insight-icon {
+            font-size: var(--font-size-4);
+            flex-shrink: 0;
+        }
+
+        .stat-card.incompatible .insight-icon {
+            filter: grayscale(1) brightness(10);
+        }
+
+        .insight-label {
+            color: var(--color-text-subtle);
+        }
+
+        .insight-value {
+            color: var(--color-text-subtle);
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+
+        .section {
+            padding: var(--spacing-4);
+        }
+
+        .section h2 {
+            color: var(--color-text);
+            margin-bottom: var(--spacing-2);
+            font-size: var(--font-size-6);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-2);
+        }
+
+        .section p {
+            color: var(--color-text-subtle);
+            margin-bottom: var(--spacing-3);
+            line-height: 1.6;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: var(--radius-2);
+            box-shadow: rgba(0, 0, 0, 0.2) 0px 2px 4px -1px, rgba(0, 0, 0, 0.14) 0px 4px 5px 0px, rgba(0, 0, 0, 0.12) 0px 1px 10px 0px;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: var(--radius-2);
+            overflow: hidden;
+            background-color: var(--color-02dp);
+        }
+
+        .table th {
+            padding: 10px 15px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--color-text);
+            font-size: var(--font-size-3);
+            background: hsla(0, 0%, 100%, 0.02);
+            border-bottom: 1px solid var(--color-input-border);
+        }
+
+        .table td {
+            padding: 10px 15px;
+            text-align: left;
+            vertical-align: top;
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-3);
+            border-bottom: 1px solid var(--color-input-border);
+        }
+
+        .table th:first-child,
+        .table td:first-child {
+            padding-left: 20px;
+        }
+
+        .table th:last-child,
+        .table td:last-child {
+            padding-right: 20px;
+        }
+
+        .table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table tbody tr:hover td {
+            background-color: var(--color-03dp);
+        }
+
+        .table code {
+            background: var(--color-03dp);
+            padding: var(--spacing-1) var(--spacing-2);
+            border-radius: var(--radius-1);
+            font-family: 'SF Mono', Monaco, Inconsolata, 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: var(--font-size-2);
+            color: var(--color-primary);
+        }
+
+        .badge {
+            padding: var(--spacing-1) var(--spacing-3);
+            border-radius: var(--radius-2);
+            font-size: var(--font-size-1);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .badge-danger {
+            background-color: var(--color-danger);
+            color: white;
+        }
+
+        .badge-success {
+            background-color: #10b981;
+            color: white;
+        }
+
+        .annotation-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: var(--spacing-2);
+        }
+
+        .annotation-list li,
+        .annotation-badge {
+            background-color: var(--color-bg-body);
+            padding: var(--spacing-1) var(--spacing-2);
+            border-radius: var(--radius-2);
+            font-family: 'SF Mono', Monaco, Inconsolata, 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: var(--font-size-2);
+            color: var(--color-text-subtle);
+        }
+
+        .annotation-badge {
+            display: inline-block;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: var(--spacing-7) var(--spacing-5);
+            color: var(--color-text-subtle);
+        }
+
+        .empty-state h3 {
+            margin-bottom: var(--spacing-3);
+            color: #10b981;
+            font-size: var(--font-size-7);
+            font-weight: 600;
+        }
+
+        .empty-state p {
+            font-size: var(--font-size-4);
+            line-height: 1.6;
+        }
+
+        .tabs {
+            display: flex;
+            margin: 0;
+        }
+
+        .tab-button {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-2);
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--color-input-border);
+            padding: var(--spacing-3);
+            cursor: pointer;
+            font-size: var(--font-size-4);
+            font-weight: 600;
+            color: var(--color-text-subtle);
+            font-family: 'Rubik', sans-serif;
+        }
+
+        .tab-button:hover {
+            color: var(--color-hiContrast);
+        }
+
+        .tab-button.active {
+            color: var(--color-primary);
+            border-bottom: 2px solid var(--color-primary);
+        }
+
+        .tab-badge {
+            display: inline-block;
+            background-color: var(--color-03dp);
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-1);
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: var(--radius-2);
+        }
+
+        .tab-button.active .tab-badge {
+            background-color: var(--color-primary);
+            color: var(--color-button-primary-text);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: var(--spacing-2);
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .tab-button {
+                padding: var(--spacing-3);
+                font-size: var(--font-size-3);
+            }
+
+            .tabs {
+                flex-wrap: wrap;
+            }
+        }
+
+        .submission-section {
+            margin-bottom: var(--spacing-5);
+            overflow: hidden;
+        }
+
+        .submission-section h3 {
+            color: var(--color-primary);
+            margin-bottom: var(--spacing-3);
+            font-size: var(--font-size-6);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-2);
+        }
+
+        .submission-section p {
+            margin-bottom: var(--spacing-3);
+            color: var(--color-text-subtle);
+            line-height: 1.6;
+            font-size: var(--font-size-4);
+        }
+
+
+        .submit-button:disabled {
+            background: var(--color-text-subtle);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .submission-status {
+            margin-top: var(--spacing-3);
+            padding: var(--spacing-3);
+            border-radius: var(--radius-3);
+            display: none;
+            font-size: var(--font-size-3);
+            font-weight: 500;
+        }
+
+        .submission-status.success {
+            background-color: #10b981;
+            color: white;
+            display: block;
+        }
+
+        .submission-status.error {
+            background-color: var(--color-danger);
+            color: white;
+            display: block;
+        }
+
+        .submission-status.error .error-icon {
+            filter: grayscale(1) brightness(10);
+            margin-right: var(--spacing-1);
+        }
+
+        .submission-status.loading {
+            background-color: var(--color-03dp);
+            color: var(--color-text-subtle);
+            display: block;
+        }
+
+        .send-report-row td {
+            padding: var(--spacing-4);
+            border-bottom: 1px solid var(--color-input-border);
+        }
+
+        .table tbody tr.send-report-row:hover td {
+            background-color: transparent;
+        }
+
+        .send-report-row ~ tr:not(.send-report-row) {
+            display: none;
+        }
+
+        .send-report-row.dismissed {
+            display: none;
+        }
+
+        .send-report-row.dismissed ~ tr {
+            display: table-row !important;
+        }
+
+        .send-report-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .send-report-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-2);
+            align-items: center;
+            margin: 0 var(--spacing-3);
+        }
+
+        .send-report-dismiss {
+            color: var(--color-primary);
+            font-size: var(--font-size-2);
+            cursor: pointer;
+            text-decoration: underline;
+            background: none;
+            border: none;
+            padding: 0;
+            font-family: 'Rubik', sans-serif;
+        }
+
+        .send-report-dismiss:hover {
+            color: var(--color-primary-hover);
+        }
+
+        .send-report-text {
+            flex: 1;
+        }
+
+        .send-report-text h4 {
+            color: var(--color-text);
+            font-size: var(--font-size-4);
+            font-weight: 600;
+            margin: 0 0 var(--spacing-1) 0;
+        }
+
+        .send-report-text p {
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-3);
+            margin: 0;
+        }
+
+        .send-report-toggle {
+            color: var(--color-primary);
+            font-size: var(--font-size-2);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .send-report-toggle:hover {
+            color: var(--color-primary-hover);
+        }
+
+        .send-report-data {
+            display: none;
+            margin-top: var(--spacing-3);
+            padding: var(--spacing-3);
+            border: 1px solid var(--color-input-border);
+            border-radius: var(--radius-2);
+            background-color: var(--color-01dp);
+            font-size: var(--font-size-2);
+            color: var(--color-text-subtle);
+            max-height: 400px;
+            overflow: auto;
+        }
+
+        .send-report-data.visible {
+            display: block;
+        }
+
+        .send-report-data pre {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            overflow: visible !important;
+            max-height: none !important;
+        }
+
+        .send-report-data code {
+            font-size: var(--font-size-1);
+            background: transparent;
+        }
+
+        .footer {
+            text-align: center;
+            padding: var(--spacing-6) var(--spacing-3);
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-2);
+        }
+
+        .footer a {
+            color: var(--color-text-subtle);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--color-text);
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body data-theme="light">
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <h1>Migration Report</h1>
+                <button class="button" onclick="toggleTheme()">
+                    <span id="theme-icon">🌑</span>
+                    <span id="theme-text">Dark</span>
+                </button>
+            </div>
+            <p class="header-description">Analysis of Kubernetes Nginx Ingress resources for migration to Traefik</p>
+            <p class="header-description-sub-info">Generated on {{.GenerationDate.Format "January 2, 2006 at 15:04:05 MST"}}</p>
+            <p class="header-description-sub-info">Version: {{.Version}}</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card card card-elevation-1">
+                <div class="stat-icon">📊</div>
+                <div class="stat-card-content">
+                    <div class="stat-value">{{.IngressCount}}</div>
+                    <div class="stat-label">Total ingresses</div>
+                    {{if .IngressCountByClass}}
+                    <div class="stat-breakdown">
+                        <div class="stat-breakdown-label">Breakdown by class:</div>
+                        {{range $class, $count := .IngressCountByClass}}
+                        <div class="stat-breakdown-item">
+                            <span class="breakdown-class-name">
+                                {{if eq $class "without-class"}}Without class{{else}}{{$class}}{{end}}
+                            </span>
+                            <span class="breakdown-count">{{$count}}</span>
+                        </div>
+                        {{end}}
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+
+            <div class="stat-card compatible card card-elevation-1">
+                <div class="stat-icon">✅</div>
+                <div class="stat-card-content">
+                    <div class="stat-value">{{.CompatibleIngressCount}}</div>
+                    <div class="stat-label-row">
+                        <div class="stat-label">Compatible ingresses</div>
+                        <div class="progress-label">{{printf "%.1f" .CompatibleIngressPercentage}}%</div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{printf "%.1f" .CompatibleIngressPercentage}}%"></div>
+                    </div>
+                    {{if gt .CompatibleIngressCount 0}}
+                    <div class="stat-insights">
+                        <div class="insight-item">
+                            <span class="insight-icon">🟢</span>
+                            <span class="insight-label">No annotations</span>
+                            <span class="insight-value">{{.VanillaIngressCount}} ({{printf "%.1f" .VanillaIngressPercentage}}%)</span>
+                        </div>
+                        <div class="insight-item">
+                            <span class="insight-icon">🟡</span>
+                            <span class="insight-label">Supported annotations</span>
+                            <span class="insight-value">{{.SupportedIngressCount}} ({{printf "%.1f" .SupportedIngressPercentage}}%)</span>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+
+            <div class="stat-card incompatible card card-elevation-1">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-card-content">
+                    <div class="stat-value">{{.UnsupportedIngressCount}}</div>
+                    <div class="stat-label-row">
+                        <div class="stat-label">Need attention</div>
+                        <div class="progress-label">{{printf "%.1f" .UnsupportedIngressPercentage}}%</div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{printf "%.1f" .UnsupportedIngressPercentage}}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{if eq .IngressCount 0}}
+        <div class="section card card-elevation-1">
+            <div class="empty-state">
+                <h3>🔍 No Ingresses Found</h3>
+                <p>No Ingress resources were found in this cluster. Make sure you have the necessary permissions and that Ingresses are deployed.</p>
+            </div>
+        </div>
+        {{else}}
+        {{if eq .UnsupportedIngressCount 0}}
+        <div class="section card card-elevation-1">
+            <div class="empty-state">
+                <h3>🎉 Excellent!</h3>
+                <p>All your Ingress resources are compatible with Traefik. You're ready to migrate!</p>
+            </div>
+        </div>
+        {{end}}
+        {{end}}
+
+        {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses}}
+        <div class="card card-elevation-1 card-no-padding">
+            <div class="tabs">
+                {{if .UnsupportedIngresses}}
+                <button class="tab-button active" onclick="showTab(event, 'ingresses')">Unsupported Ingresses<span class="tab-badge">{{len .UnsupportedIngresses}}</span></button>
+                {{end}}
+                {{if .UnsupportedIngressAnnotations}}
+                <button class="tab-button {{if not .UnsupportedIngresses}}active{{end}}" onclick="showTab(event, 'annotations')">Unsupported Annotations<span class="tab-badge">{{len .UnsupportedIngressAnnotations}}</span></button>
+                {{end}}
+            </div>
+
+            {{if .UnsupportedIngressAnnotations}}
+            <div id="annotations" class="tab-content {{if not .UnsupportedIngresses}}active{{end}}">
+                <div class="section">
+                    <h2>Unsupported annotations summary</h2>
+                    <p>The following nginx annotations are not currently supported and will need manual migration:</p>
+
+                    <div class="table-container">
+                        <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Annotation</th>
+                                        <th>Usage count</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{$first := true}}
+                                    {{$root := .}}
+                                    {{range $annotation, $count := .UnsupportedIngressAnnotations}}
+                                    <tr>
+                                        <td><span class="annotation-badge">{{$annotation}}</span></td>
+                                        <td>{{$count}}</td>
+                                    </tr>
+                                    {{if $first}}
+                                    <tr class="send-report-row">
+                                        <td colspan="2">
+                                            <div class="send-report-content">
+                                                <div class="send-report-text">
+                                                    <h4>See all {{len $root.UnsupportedIngressAnnotations}} annotations and help improve Traefik</h4>
+                                                    <p>Share your migration report with Traefik Labs - it only takes one click and helps make Traefik better for everyone.<br/>Your data helps us understand real-world usage patterns and prioritize NGINX provider compatibility improvements.<br/><strong>Privacy notice:</strong> Only anonymized statistics are shared - no sensitive data, names, or configurations. <span class="send-report-toggle" onclick="toggleReportData('reportData1')">View what's sent</span></p>
+                                                </div>
+                                                <div class="send-report-buttons">
+                                                    <button id="submitReport1" class="button button-primary button-large submit-button" onclick="submitReport('submitReport1')">
+                                                        Share Report
+                                                    </button>
+                                                    <button class="send-report-dismiss" onclick="dismissBanner('annotations')">Skip</button>
+                                                </div>
+                                            </div>
+                                            <div id="reportData1" class="send-report-data">
+                                                <pre><code class="language-json"></code></pre>
+                                            </div>
+                                            <div id="submissionStatus1" class="submission-status"></div>
+                                        </td>
+                                    </tr>
+                                    {{$first = false}}
+                                    {{end}}
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                </div>
+            </div>
+            {{end}}
+
+            {{if .UnsupportedIngresses}}
+            <div id="ingresses" class="tab-content active">
+                <div class="section">
+                    <h2>Ingresses requiring attention</h2>
+                    <p>The following Ingress resources contain unsupported annotations and will need manual review:</p>
+
+                    <div class="table-container">
+                        <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Namespace</th>
+                                        <th>Ingress class</th>
+                                        <th>Unsupported annotations</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{$first := true}}
+                                    {{$root := .}}
+                                    {{range .UnsupportedIngresses}}
+                                    <tr>
+                                        <td><strong>{{.Name}}</strong></td>
+                                        <td>{{.Namespace}}</td>
+                                        <td>{{if .IngressClassName}}{{.IngressClassName}}{{else}}<em>default</em>{{end}}</td>
+                                        <td>
+                                            {{if .UnsupportedAnnotations}}
+                                            <ul class="annotation-list">
+                                                {{range .UnsupportedAnnotations}}
+                                                <li>{{.}}</li>
+                                                {{end}}
+                                            </ul>
+                                            {{else}}
+                                            <em>None</em>
+                                            {{end}}
+                                        </td>
+                                    </tr>
+                                    {{if $first}}
+                                    <tr class="send-report-row">
+                                        <td colspan="4">
+                                            <div class="send-report-content">
+                                                <div class="send-report-text">
+                                                    <h4>See all {{len $root.UnsupportedIngresses}} ingresses and help improve Traefik</h4>
+                                                    <p>Share your migration report with Traefik Labs - it only takes one click and helps make Traefik better for everyone.<br/>Your data helps us understand real-world usage patterns and prioritize NGINX provider compatibility improvements.<br/><strong>Privacy notice:</strong> Only anonymized statistics are shared - no sensitive data, names, or configurations. <span class="send-report-toggle" onclick="toggleReportData('reportData2')">View what's sent</span></p>
+                                                </div>
+                                                <div class="send-report-buttons">
+                                                    <button id="submitReport2" class="button button-primary button-large submit-button" onclick="submitReport('submitReport2')">
+                                                        Share Report
+                                                    </button>
+                                                    <button class="send-report-dismiss" onclick="dismissBanner('ingresses')">Skip</button>
+                                                </div>
+                                            </div>
+                                            <div id="reportData2" class="send-report-data">
+                                                <pre><code class="language-json"></code></pre>
+                                            </div>
+                                            <div id="submissionStatus2" class="submission-status"></div>
+                                        </td>
+                                    </tr>
+                                    {{$first = false}}
+                                    {{end}}
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+
+        <footer class="footer">
+            Built by <a href="https://traefik.io/?utm_source=ingress-nginx-migration&utm_medium=footer&utm_campaign=migration-report" target="_blank" rel="noopener">Traefik Labs</a> with ❤️
+        </footer>
+    </div>
+
+    <script>
+        // Report hash computed server-side (excludes generationDate)
+        const reportHash = '{{.ReportHash}}';
+
+        // Check if report was already shared
+        function checkShareStatus() {
+            const storedHash = localStorage.getItem('migration-report-shared');
+
+            if (storedHash === reportHash) {
+                // Report already shared - hide banners
+                document.querySelectorAll('.send-report-row').forEach(row => {
+                    row.classList.add('dismissed');
+                });
+            } else if (storedHash !== null) {
+                // Report has changed - clear old state
+                localStorage.removeItem('migration-report-shared');
+            }
+        }
+
+        // Theme management
+        function toggleTheme() {
+            const body = document.body;
+            const themeIcon = document.getElementById('theme-icon');
+            const themeText = document.getElementById('theme-text');
+            const currentTheme = body.getAttribute('data-theme');
+            const prismLight = document.getElementById('prism-light');
+            const prismDark = document.getElementById('prism-dark');
+
+            if (currentTheme === 'light') {
+                body.setAttribute('data-theme', 'dark');
+                themeIcon.textContent = '☀️';
+                themeText.textContent = 'Light';
+                localStorage.setItem('theme', 'dark');
+                prismLight.disabled = true;
+                prismDark.disabled = false;
+            } else {
+                body.setAttribute('data-theme', 'light');
+                themeIcon.textContent = '🌑';
+                themeText.textContent = 'Dark';
+                localStorage.setItem('theme', 'light');
+                prismLight.disabled = false;
+                prismDark.disabled = true;
+            }
+        }
+
+        // Load saved theme on page load
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            const body = document.body;
+            const themeIcon = document.getElementById('theme-icon');
+            const themeText = document.getElementById('theme-text');
+            const prismLight = document.getElementById('prism-light');
+            const prismDark = document.getElementById('prism-dark');
+
+            body.setAttribute('data-theme', savedTheme);
+
+            if (savedTheme === 'dark') {
+                themeIcon.textContent = '☀️';
+                themeText.textContent = 'Light';
+                prismLight.disabled = true;
+                prismDark.disabled = false;
+            } else {
+                themeIcon.textContent = '🌑';
+                themeText.textContent = 'Dark';
+                prismLight.disabled = false;
+                prismDark.disabled = true;
+            }
+        }
+
+        // Initialize theme and check share status when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTheme();
+            checkShareStatus();
+        });
+
+        function showTab(evt, tabName) {
+            var i, tabContent, tabButtons;
+
+            // Hide all tab content
+            tabContent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabContent.length; i++) {
+                tabContent[i].classList.remove("active");
+            }
+
+            // Remove active class from all tab buttons
+            tabButtons = document.getElementsByClassName("tab-button");
+            for (i = 0; i < tabButtons.length; i++) {
+                tabButtons[i].classList.remove("active");
+            }
+
+            // Show the selected tab and mark button as active
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+
+        function toggleReportData(elementId) {
+            const element = document.getElementById(elementId);
+            const toggle = event.target;
+
+            if (element.classList.contains('visible')) {
+                element.classList.remove('visible');
+                toggle.textContent = 'View what\'s sent';
+            } else {
+                // Populate JSON on first open
+                const codeElement = element.querySelector('code');
+                if (!codeElement.textContent) {
+                    codeElement.textContent = JSON.stringify(reportJSON, null, 2);
+                    Prism.highlightElement(codeElement);
+                }
+                element.classList.add('visible');
+                toggle.textContent = 'Hide the report data';
+            }
+        }
+
+        function dismissBanner(tabName) {
+            const tab = document.getElementById(tabName);
+            const sendReportRow = tab.querySelector('.send-report-row');
+            if (sendReportRow) {
+                sendReportRow.classList.add('dismissed');
+            }
+        }
+
+        function submitReport(buttonId) {
+            // Find the specific button and status for this tab
+            const button = document.getElementById(buttonId);
+            const statusId = buttonId.replace('submitReport', 'submissionStatus');
+            const status = document.getElementById(statusId);
+
+            button.disabled = true;
+            button.textContent = 'Sending...';
+
+            status.className = 'submission-status loading';
+            status.textContent = 'Sending report to Traefik Labs...';
+
+            // Make the request
+            fetch('/send', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    status.className = 'submission-status success';
+                    status.textContent = '✅ Thank you! Your report has been sent successfully.';
+                    button.textContent = 'Sent';
+
+                    // Save report hash to localStorage
+                    localStorage.setItem('migration-report-shared', reportHash);
+
+                    // Dismiss both banners after successful submission
+                    setTimeout(() => {
+                        document.querySelectorAll('.send-report-row').forEach(row => {
+                            row.classList.add('dismissed');
+                        });
+                    }, 2000);
+                } else {
+                    throw new Error('Failed to send report');
+                }
+            })
+            .catch(error => {
+                status.className = 'submission-status error';
+                status.innerHTML = '<span class="error-icon">❌</span> Failed to send the report. Please try again later.';
+                button.disabled = false;
+                button.textContent = 'Share Report';
+            });
+        }
+    </script>
+
+    <script>
+        const reportJSON = {{.ReportJSON}};
+    </script>
+
+    <script src="https://unpkg.com/prismjs@1.30.0/components/prism-core.min.js"></script>
+    <script src="https://unpkg.com/prismjs@1.30.0/plugins/autoloader/prism-autoloader.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-canary-main
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: canary.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-canary-test
+  namespace: default
+  annotations:
+
+    nginx.ingress.kubernetes.io/enable-opentracing: "true"
+    nginx.ingress.kubernetes.io/opentracing-operation-name: "HTTP $request_method $uri"
+    nginx.ingress.kubernetes.io/opentracing-location: "true"
+    nginx.ingress.kubernetes.io/opentracing-location-operation-name: "HTTP $request_method $uri"
+
+    # Canary deployment annotations - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "20"
+    nginx.ingress.kubernetes.io/canary-by-header: "X-Canary"
+    nginx.ingress.kubernetes.io/canary-by-header-value: "always"
+    nginx.ingress.kubernetes.io/canary-by-cookie: "canary-cookie"
+    nginx.ingress.kubernetes.io/affinity-canary-behavior: "sticky"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: canary.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami-canary
+                port:
+                  number: 80

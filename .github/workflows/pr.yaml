@@ -1,0 +1,29 @@
+name: Lint, build and test
+
+on:
+  pull_request:
+    branches:
+      - '*'
+
+jobs:
+
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+
+      - name: Test
+        run: make test
+
+      - name: Build
+        run: make build

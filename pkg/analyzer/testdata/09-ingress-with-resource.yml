@@ -1,0 +1,23 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-resource
+
+spec:
+  defaultBackend:
+    resource:
+      kind: whoami
+      name: Service
+
+  rules:
+    - host: cors.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80

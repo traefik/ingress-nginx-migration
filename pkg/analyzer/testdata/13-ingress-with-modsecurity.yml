@@ -1,0 +1,37 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-modsecurity
+  namespace: default
+  annotations:
+    # ModSecurity/WAF annotations - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/enable-modsecurity: "true"
+    nginx.ingress.kubernetes.io/enable-owasp-core-rules: "true"
+    nginx.ingress.kubernetes.io/modsecurity-transaction-id: "$request_id"
+    nginx.ingress.kubernetes.io/modsecurity-snippet: |
+      SecRuleEngine On
+      SecRequestBodyAccess On
+      SecRule ARGS "@detectSQLi" \
+        "id:1001,\
+        phase:2,\
+        block,\
+        msg:'SQL Injection Attack',\
+        logdata:'Matched Data: %{MATCHED_VAR} found within %{MATCHED_VAR_NAME}',\
+        tag:'application-multi',\
+        tag:'language-multi',\
+        tag:'platform-multi',\
+        tag:'attack-sqli'"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: modsecurity.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80

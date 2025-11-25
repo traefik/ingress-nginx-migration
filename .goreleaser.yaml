@@ -1,0 +1,47 @@
+project_name: ingress-nginx-migration
+dist: dist
+version: 2
+
+builds:
+  - id: ingress-nginx-migration
+    binary: ingress-nginx-migration
+    main: ./cmd/
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/traefik/ingress-nginx-migration/pkg/version.Version={{.Version}}
+      - -X github.com/traefik/ingress-nginx-migration/pkg/version.BuildDate={{.Date}}
+      - -X github.com/traefik/ingress-nginx-migration/pkg/client.ClientCertB64={{.Env.MTLS_CLIENT_CERT_B64}}
+      - -X github.com/traefik/ingress-nginx-migration/pkg/client.ClientKeyB64={{.Env.MTLS_CLIENT_KEY_B64}}
+      - -X github.com/traefik/ingress-nginx-migration/pkg/client.CACertB64={{.Env.MTLS_CA_CERT_B64}}
+    flags:
+      - -trimpath
+    goos:
+      - windows
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+changelog:
+  disable: true
+
+archives:
+  - id: ingress-nginx-migration
+    ids:
+      - ingress-nginx-migration
+    formats:
+      - tar.gz
+    wrap_in_directory: true
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: '{{ .ProjectName }}-{{ .Tag }}-{{ .Os }}-{{ .Arch }}'
+    files:
+      - readme.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_checksums.txt"

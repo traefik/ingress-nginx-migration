@@ -1,0 +1,27 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-rate-limiting
+  namespace: default
+  annotations:
+    # Rate limiting annotations - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/rate-limit: "10"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/rate-limit-key: "$binary_remote_addr"
+    nginx.ingress.kubernetes.io/rate-limit-status-code: "429"
+    nginx.ingress.kubernetes.io/rate-limit-exceed-action: "block"
+    nginx.ingress.kubernetes.io/connection-proxy-header: "keep-alive"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ratelimit.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80
