@@ -78,11 +78,6 @@ issues:
   exclude-use-default: false
   max-per-linter: 0
   max-same-issues: 0
-  exclude:
-    - 'ST1000: at least one file in a package should have a package comment'
-    - 'G204: Subprocess launched with variable'
-    - 'G304: Potential file inclusion via variable'
-    - 'package-comments: should have a package comment'
   exclude-rules:
     - path: .*_test.go
       linters:

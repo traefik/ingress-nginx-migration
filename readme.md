@@ -25,10 +25,10 @@ The analyzer checks for compatibility with common nginx ingress controller annot
 
 ## API Endpoints
 
-| Method | Path           | Description                                          |
-|--------|----------------|------------------------------------------------------|
-| `GET`  | `/report`      | Generate and return migration analysis report (JSON) |
-| `PUT`  | `/send-report` | Generate and send migration report to Traefik Labs   |
+| Method | Path           | Description                                        |
+|--------|----------------|----------------------------------------------------|
+| `GET`  | `/report`      | Generate and return migration analysis HTML report |
+| `PUT`  | `/send-report` | Generate and send migration report to Traefik Labs |
 
 ## Usage
 
@@ -54,40 +54,82 @@ go build -o ingress-nginx-analyzer ./cmd
 
 ## Running
 
-### In-cluster (recommended)
-Deploy the analyzer as a pod in your Kubernetes cluster where it can automatically discover and analyze Ingress resources:
-
-```bash
-./ingress-nginx-analyzer
-```
-
-### Local development
+### Local
 Run locally with a kubeconfig file:
 
 ```bash
 ./ingress-nginx-analyzer --kubeconfig ~/.kube/config
 ```
 
-## Example Report
+### In-cluster
+Deploy the analyzer as a pod in your Kubernetes cluster where it can automatically discover and analyze Ingress resources.
 
-The analyzer generates reports in JSON format showing migration compatibility:
+```bash
+kubectl apply -f - <<EOF
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingress-nginx-analyzer
+  namespace: default
 
-```json
-{
-  "IngressCount": 100,
-  "CompatibleIngressCount": 80,
-  "UnsupportedIngressCount": 20,
-  "UnsupportedIngressAnnotations": {
-    "nginx.ingress.kubernetes.io/custom-annotation": 5,
-    "nginx.ingress.kubernetes.io/another-unsupported": 3
-  },
-  "UnsupportedIngresses": [
-    {
-      "Name": "my-app-ingress",
-      "Namespace": "default",
-      "IngressClassName": "nginx",
-      "UnsupportedAnnotations": ["nginx.ingress.kubernetes.io/custom-annotation"]
-    }
-  ]
-}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-nginx-analyzer
+rules:
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-nginx-analyzer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ingress-nginx-analyzer
+subjects:
+- kind: ServiceAccount
+  name: ingress-nginx-analyzer
+  namespace: default
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ingress-nginx-analyzer
+  namespace: default
+  labels:
+    app: ingress-nginx-analyzer
+spec:
+  serviceAccountName: ingress-nginx-analyzer
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+  containers:
+  - name: ingress-nginx-analyzer
+    image: traefik/ingress-nginx-analyzer:latest
+    ports:
+    - containerPort: 8080
+      name: http
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
+EOF
 ```
+
+Access the report:
+```bash
+kubectl port-forward pod/ingress-nginx-analyzer 8080:8080
+# Open http://localhost:8080 in your browser
+```
+
+
