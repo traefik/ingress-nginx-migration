@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nginx Ingress Migration Report - Traefik</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f7fa;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #24a0ed 0%, #1e87d1 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            border-left: 4px solid #24a0ed;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-card.compatible {
+            border-left-color: #28a745;
+        }
+
+        .stat-card.compatible .stat-value {
+            color: #28a745;
+        }
+
+        .stat-card.incompatible {
+            border-left-color: #dc3545;
+        }
+
+        .stat-card.incompatible .stat-value {
+            color: #dc3545;
+        }
+
+        .progress-bar {
+            background-color: #e9ecef;
+            border-radius: 10px;
+            height: 20px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        .section {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .section h2 {
+            color: #24a0ed;
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+            font-weight: 500;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .table th,
+        .table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .table tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .badge-success {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .annotation-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .annotation-list li {
+            background-color: #f8f9fa;
+            padding: 5px 10px;
+            margin: 2px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #28a745;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #e9ecef;
+            margin-bottom: 30px;
+            background: white;
+            border-radius: 10px 10px 0 0;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-button {
+            background: #f8f9fa;
+            border: none;
+            padding: 15px 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            color: #495057;
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab-button:hover {
+            background: #e9ecef;
+            color: #24a0ed;
+        }
+
+        .tab-button.active {
+            background: white;
+            color: #24a0ed;
+            border-bottom-color: #24a0ed;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section {
+                padding: 20px;
+            }
+
+            .tab-button {
+                padding: 12px 15px;
+                font-size: 0.9rem;
+            }
+
+            .tabs {
+                flex-wrap: wrap;
+            }
+        }
+
+        .submission-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 4px solid #24a0ed;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .submission-section h3 {
+            color: #24a0ed;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+            font-weight: 500;
+        }
+
+        .submission-section p {
+            margin-bottom: 20px;
+            color: #495057;
+            line-height: 1.6;
+        }
+
+        .submit-button {
+            background: linear-gradient(135deg, #24a0ed 0%, #1e87d1 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(36, 160, 237, 0.3);
+        }
+
+        .submit-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(36, 160, 237, 0.4);
+        }
+
+        .submit-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .submission-status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .submission-status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .submission-status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .submission-status.loading {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Nginx Ingress Migration Report</h1>
+            <p>Analysis of Kubernetes Ingress resources for migration to Traefik</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">{{.IngressCount}}</div>
+                <div class="stat-label">Total Ingresses</div>
+            </div>
+
+            <div class="stat-card compatible">
+                <div class="stat-value">{{.CompatibleIngressCount}}</div>
+                <div class="stat-label">Compatible</div>
+                {{if gt .IngressCount 0}}
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{printf "%.1f" .CompatiblePercentage}}%"></div>
+                </div>
+                {{end}}
+            </div>
+
+            <div class="stat-card incompatible">
+                <div class="stat-value">{{.UnsupportedIngressCount}}</div>
+                <div class="stat-label">Need Attention</div>
+                {{if gt .IngressCount 0}}
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{printf "%.1f" .UnsupportedPercentage}}%; background: linear-gradient(90deg, #dc3545 0%, #e74c3c 100%);"></div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <div class="submission-section">
+            <h3>🤝 Help Improve Traefik</h3>
+            <p>
+                Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone.
+                Your data helps us understand real-world usage patterns and prioritize development efforts.
+            </p>
+            <p>
+                <strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included.
+            </p>
+            <button id="submitReport" class="submit-button" onclick="submitReport()">
+                📤 Send to Traefik Labs
+            </button>
+            <div id="submissionStatus" class="submission-status"></div>
+        </div>
+
+        {{if eq .IngressCount 0}}
+        <div class="section">
+            <div class="empty-state">
+                <h3>🔍 No Ingresses Found</h3>
+                <p>No Ingress resources were found in this cluster. Make sure you have the necessary permissions and that Ingresses are deployed.</p>
+            </div>
+        </div>
+        {{else}}
+        {{if eq .UnsupportedIngressCount 0}}
+        <div class="section">
+            <div class="empty-state">
+                <h3>🎉 Excellent!</h3>
+                <p>All your Ingress resources are compatible with Traefik. You're ready to migrate!</p>
+            </div>
+        </div>
+        {{end}}
+        {{end}}
+
+        {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses}}
+        <div class="tabs">
+            {{if .UnsupportedIngressAnnotations}}
+            <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Annotations</button>
+            {{end}}
+            {{if .UnsupportedIngresses}}
+            <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">⚠️ Ingresses</button>
+            {{end}}
+        </div>
+        {{end}}
+
+        {{if .UnsupportedIngressAnnotations}}
+        <div id="annotations" class="tab-content active">
+            <div class="section">
+                <h2>📋 Unsupported Annotations Summary</h2>
+                <p>The following nginx annotations are not currently supported and will need manual migration:</p>
+
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Annotation</th>
+                            <th>Usage Count</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $annotation, $count := .UnsupportedIngressAnnotations}}
+                        <tr>
+                            <td><code>{{$annotation}}</code></td>
+                            <td>{{$count}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
+        {{if .UnsupportedIngresses}}
+        <div id="ingresses" class="tab-content {{if not .UnsupportedIngressAnnotations}}active{{end}}">
+            <div class="section">
+            <h2>⚠️ Ingresses Requiring Attention</h2>
+            <p>The following Ingress resources contain unsupported annotations and will need manual review:</p>
+
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Namespace</th>
+                        <th>Ingress Class</th>
+                        <th>Unsupported Annotations</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .UnsupportedIngresses}}
+                    <tr>
+                        <td><strong>{{.Name}}</strong></td>
+                        <td>{{.Namespace}}</td>
+                        <td>{{if .IngressClassName}}{{.IngressClassName}}{{else}}<em>default</em>{{end}}</td>
+                        <td>
+                            {{if .UnsupportedAnnotations}}
+                            <ul class="annotation-list">
+                                {{range .UnsupportedAnnotations}}
+                                <li>{{.}}</li>
+                                {{end}}
+                            </ul>
+                            {{else}}
+                            <em>None</em>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+            </div>
+        </div>
+        {{end}}
+    </div>
+
+    <script>
+        function showTab(evt, tabName) {
+            var i, tabContent, tabButtons;
+
+            // Hide all tab content
+            tabContent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabContent.length; i++) {
+                tabContent[i].classList.remove("active");
+            }
+
+            // Remove active class from all tab buttons
+            tabButtons = document.getElementsByClassName("tab-button");
+            for (i = 0; i < tabButtons.length; i++) {
+                tabButtons[i].classList.remove("active");
+            }
+
+            // Show the selected tab and mark button as active
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+
+        function submitReport() {
+            const button = document.getElementById('submitReport');
+            const status = document.getElementById('submissionStatus');
+
+            // Reset status
+            status.className = 'submission-status loading';
+            status.textContent = 'Sending report to Traefik Labs...';
+
+            // Disable button
+            button.disabled = true;
+            button.textContent = 'Sending...';
+
+            // Make the request
+            fetch('/send-report', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    status.className = 'submission-status success';
+                    status.textContent = '✅ Thank you! Your report has been sent to Traefik Labs successfully.';
+                    button.textContent = 'Sent ✅';
+                } else {
+                    throw new Error('Failed to send report');
+                }
+            })
+            .catch(error => {
+                status.className = 'submission-status error';
+                status.textContent = '❌ Failed to send report. Please try again later.';
+                button.disabled = false;
+                button.textContent = '📤 Send to Traefik Labs';
+            });
+        }
+    </script>
+</body>
+</html>

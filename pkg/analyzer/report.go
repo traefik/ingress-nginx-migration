@@ -72,6 +72,8 @@ type Report struct {
 	IngressCount                  int
 	CompatibleIngressCount        int
 	UnsupportedIngressCount       int
+	CompatiblePercentage          float64
+	UnsupportedPercentage         float64
 	UnsupportedIngressAnnotations map[string]int
 	UnsupportedIngresses          []IngressReport
 }
@@ -96,6 +98,12 @@ func computeReport(ingresses []*netv1.Ingress) Report {
 		for _, a := range ingReport.UnsupportedAnnotations {
 			report.UnsupportedIngressAnnotations[a] += 1
 		}
+	}
+
+	// Calculate percentages
+	if report.IngressCount > 0 {
+		report.CompatiblePercentage = float64(report.CompatibleIngressCount) / float64(report.IngressCount) * 100
+		report.UnsupportedPercentage = float64(report.UnsupportedIngressCount) / float64(report.IngressCount) * 100
 	}
 
 	return report

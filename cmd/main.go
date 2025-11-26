@@ -70,11 +70,14 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	client := client.New("http://127.0.0.1:8080")
 
-	hdl := handlers.NewHandlers(analyzer, client)
+	hdl, err := handlers.NewHandlers(analyzer, client)
+	if err != nil {
+		return fmt.Errorf("creating handlers: %w", err)
+	}
 
 	router := httprouter.New()
-	router.HandlerFunc(http.MethodGet, "/report", hdl.Report)
 	router.HandlerFunc(http.MethodPut, "/send-report", hdl.SendReport)
+	router.HandlerFunc(http.MethodGet, "/", hdl.Report)
 
 	addr := cmd.String(flagAddr)
 	errCh := make(chan error)

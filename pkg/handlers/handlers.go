@@ -1,12 +1,17 @@
 package handlers
 
 import (
-	"encoding/json"
+	_ "embed"
+	"fmt"
+	"html/template"
 	"net/http"
 
 	"github.com/rs/zerolog/log"
 	"github.com/traefik/ingress-nginx-analyzer/pkg/analyzer"
 )
+
+//go:embed report.html
+var reportHTML string
 
 // Client is the interface for sending reports.
 type Client interface {
@@ -20,16 +25,23 @@ type Analyzer interface {
 
 // Handlers holds handler configuration.
 type Handlers struct {
-	client   Client
-	analyzer Analyzer
+	client     Client
+	analyzer   Analyzer
+	reportTmpl *template.Template
 }
 
 // NewHandlers creates HTTP handlers.
-func NewHandlers(analyzer *analyzer.Analyzer, client Client) *Handlers {
-	return &Handlers{
-		client:   client,
-		analyzer: analyzer,
+func NewHandlers(analyzer *analyzer.Analyzer, client Client) (*Handlers, error) {
+	reportTmpl, err := template.New("report").Parse(reportHTML)
+	if err != nil {
+		return nil, fmt.Errorf("parsing report template: %w", err)
 	}
+
+	return &Handlers{
+		client:     client,
+		analyzer:   analyzer,
+		reportTmpl: reportTmpl,
+	}, nil
 }
 
 // Report generates and returns the HTML report for the Ingress Nginx migration.
@@ -41,9 +53,11 @@ func (h *Handlers) Report(rw http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	rw.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(rw).Encode(report); err != nil {
+	if err := h.reportTmpl.Execute(rw, report); err != nil {
+		log.Err(err).Msg("Error while executing report template")
 		JSONInternalServerError(rw)
 		return
 	}

@@ -1,2 +1,4 @@
 .idea/
+.claude/
 dist/
+ingress-nginx-analyzer
