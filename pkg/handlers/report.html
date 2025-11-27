@@ -188,33 +188,21 @@
         .stat-card {
             position: relative;
             overflow: hidden;
-        }
-
-        .stat-card-header {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: var(--spacing-3);
+            gap: var(--spacing-3);
+            align-items: flex-start;
         }
 
         .stat-icon {
-            width: var(--height-7);
-            height: var(--height-7);
-            border-radius: var(--radius-3);
+            font-size: 28px;
+            flex-shrink: 0;
+            line-height: 1;
+        }
+
+        .stat-card-content {
+            flex: 1;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: var(--font-size-8);
-            background: var(--color-primary);
-            color: var(--color-button-primary-text);
-        }
-
-        .stat-card.compatible .stat-icon {
-            background: #10b981;
-        }
-
-        .stat-card.incompatible .stat-icon {
-            background: var(--color-danger);
+            flex-direction: column;
         }
 
         .stat-value {
@@ -233,11 +221,23 @@
             color: var(--color-danger);
         }
 
+        .stat-label-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: var(--spacing-2);
+        }
+
         .stat-label {
             color: var(--color-text-subtle);
             font-size: var(--font-size-3);
             font-weight: 500;
-            margin-bottom: var(--spacing-3);
+        }
+
+        .progress-label {
+            font-size: var(--font-size-3);
+            font-weight: 500;
+            color: var(--color-text-subtle);
         }
 
         .progress-bar {
@@ -245,7 +245,6 @@
             border-radius: var(--radius-3);
             height: var(--height-2);
             overflow: hidden;
-            margin-top: var(--spacing-3);
         }
 
         .progress-fill {
@@ -262,44 +261,32 @@
             background: var(--color-danger);
         }
 
-        .progress-label {
-            font-size: var(--font-size-1);
-            color: var(--color-text-subtle);
-            margin-top: var(--spacing-2);
-            text-align: right;
-        }
-
         .stat-insights {
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            margin-top: var(--spacing-2);
         }
 
         .insight-item {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 4px 0;
-            font-size: 0.875rem;
+            gap: var(--spacing-2);
+            font-size: var(--font-size-2);
         }
 
         .insight-icon {
-            width: 16px;
-            height: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.75rem;
+            font-size: var(--font-size-4);
+            flex-shrink: 0;
         }
 
         .insight-label {
-            color: var(--text-secondary);
-            flex: 1;
+            color: var(--color-text-subtle);
         }
 
         .insight-value {
-            color: var(--text-primary);
-            font-weight: 500;
+            color: var(--color-text-subtle);
+            margin-left: auto;
+            flex-shrink: 0;
         }
 
         .section {
@@ -562,54 +549,61 @@
 
         <div class="stats-grid">
             <div class="stat-card card card-elevation-1">
-                <div class="stat-card-header">
-                    <div class="stat-icon">📊</div>
+                <div class="stat-icon">📊</div>
+                <div class="stat-card-content">
+                    <div class="stat-value">{{.IngressCount}}</div>
+                    <div class="stat-label">Total ingresses</div>
                 </div>
-                <div class="stat-value">{{.IngressCount}}</div>
-                <div class="stat-label">Total Ingresses</div>
             </div>
 
             <div class="stat-card compatible card card-elevation-1">
-                <div class="stat-card-header">
-                    <div class="stat-icon">✅</div>
-                </div>
-                <div class="stat-value">{{.CompatibleIngressCount}}</div>
-                <div class="stat-label">Compatible</div>
-                {{if gt .IngressCount 0}}
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{printf "%.1f" .CompatibleIngressPercentage}}%"></div>
-                </div>
-                <div class="progress-label">{{printf "%.1f" .CompatibleIngressPercentage}}%</div>
-                {{end}}
-
-                {{if gt .CompatibleIngressCount 0}}
-                <div class="stat-insights">
-                    <div class="insight-item">
-                        <span class="insight-icon">🟢</span>
-                        <span class="insight-label">No annotations:</span>
-                        <span class="insight-value">{{.VanillaIngressCount}} ({{printf "%.1f" .VanillaIngressPercentage}}%)</span>
+                <div class="stat-icon">✅</div>
+                <div class="stat-card-content">
+                    <div class="stat-value">{{.CompatibleIngressCount}}</div>
+                    {{if gt .IngressCount 0}}
+                    <div class="stat-label-row">
+                        <div class="stat-label">Compatible ingresses</div>
+                        <div class="progress-label">{{printf "%.1f" .CompatibleIngressPercentage}}%</div>
                     </div>
-                    <div class="insight-item">
-                        <span class="insight-icon">🟡</span>
-                        <span class="insight-label">With supported annotations:</span>
-                        <span class="insight-value">{{.SupportedIngressCount}} ({{printf "%.1f" .SupportedIngressPercentage}}%)</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{printf "%.1f" .CompatibleIngressPercentage}}%"></div>
                     </div>
+                    {{if gt .CompatibleIngressCount 0}}
+                    <div class="stat-insights">
+                        <div class="insight-item">
+                            <span class="insight-icon">🟢</span>
+                            <span class="insight-label">No annotations</span>
+                            <span class="insight-value">{{.VanillaIngressCount}} ({{printf "%.1f" .VanillaIngressPercentage}}%)</span>
+                        </div>
+                        <div class="insight-item">
+                            <span class="insight-icon">🟡</span>
+                            <span class="insight-label">Supported annotations</span>
+                            <span class="insight-value">{{.SupportedIngressCount}} ({{printf "%.1f" .SupportedIngressPercentage}}%)</span>
+                        </div>
+                    </div>
+                    {{end}}
+                    {{else}}
+                    <div class="stat-label">Compatible</div>
+                    {{end}}
                 </div>
-                {{end}}
             </div>
 
             <div class="stat-card incompatible card card-elevation-1">
-                <div class="stat-card-header">
-                    <div class="stat-icon">⚠️</div>
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-card-content">
+                    <div class="stat-value">{{.UnsupportedIngressCount}}</div>
+                    {{if gt .IngressCount 0}}
+                    <div class="stat-label-row">
+                        <div class="stat-label">Need attention</div>
+                        <div class="progress-label">{{printf "%.1f" .UnsupportedIngressPercentage}}%</div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{printf "%.1f" .UnsupportedIngressPercentage}}%"></div>
+                    </div>
+                    {{else}}
+                    <div class="stat-label">Need attention</div>
+                    {{end}}
                 </div>
-                <div class="stat-value">{{.UnsupportedIngressCount}}</div>
-                <div class="stat-label">Need Attention</div>
-                {{if gt .IngressCount 0}}
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{printf "%.1f" .UnsupportedIngressPercentage}}%"></div>
-                </div>
-                <div class="progress-label">{{printf "%.1f" .UnsupportedIngressPercentage}}%</div>
-                {{end}}
             </div>
         </div>
 
