@@ -43,6 +43,7 @@ OPTIONS:
    --addr string        server address (default: ":8080") [$ADDR]
    --log-level string   log level (default: "info") [$LOG_LEVEL]
    --kubeconfig string  path to kubeconfig file [$KUBECONFIG]
+   --namespaces []string namespaces where to look for Ingresses [$NAMESPACES]
    --help, -h           show help
 ```
 

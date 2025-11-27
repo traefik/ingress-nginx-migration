@@ -146,6 +146,7 @@ func computeIngressReport(ing *netv1.Ingress) *IngressReport {
 			if _, ok := supportedAnnotations[annotation]; !ok {
 				unsupportedAnnotations = append(unsupportedAnnotations, annotation)
 			}
+			// FIXME: also check the annotation value? like nginx.ingress.kubernetes.io/backend-protocol: FCGI
 		}
 	}
 

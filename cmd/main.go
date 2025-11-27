@@ -22,7 +22,7 @@ const (
 	flagAddr       = "addr"
 	flagLogLevel   = "log-level"
 	flagKubeconfig = "kubeconfig"
-	flagNamespace  = "namespace"
+	flagNamespaces = "namespaces"
 )
 
 // FIXME authentication
@@ -64,10 +64,10 @@ func main() {
 				Usage:   flagKubeconfig,
 				Sources: cli.EnvVars(strcase.ToSNAKE(flagKubeconfig)),
 			},
-			&cli.StringFlag{
-				Name:    flagNamespace,
-				Usage:   flagNamespace,
-				Sources: cli.EnvVars(strcase.ToSNAKE(flagNamespace)),
+			&cli.StringSliceFlag{
+				Name:    flagNamespaces,
+				Usage:   flagNamespaces,
+				Sources: cli.EnvVars(strcase.ToSNAKE(flagNamespaces)),
 			},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
@@ -83,7 +83,7 @@ func main() {
 func run(ctx context.Context, cmd *cli.Command) error {
 	logger.Setup(cmd.String(flagLogLevel))
 
-	analyzer, err := analyzer.New(ctx, cmd.String(flagKubeconfig), cmd.String(flagNamespace))
+	analyzer, err := analyzer.New(ctx, cmd.String(flagKubeconfig), cmd.StringSlice(flagNamespaces))
 	if err != nil {
 		return fmt.Errorf("creating analyzer: %w", err)
 	}
