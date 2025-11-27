@@ -12,8 +12,8 @@ CSS variable prefix: `--color-`.
 | Token                        | Light                       | Dark                        |
 |------------------------------|-----------------------------|-----------------------------|
 | $color-01dp                  | white                       | #1E2A38                     |
-| $color-02dp                  | white                       | #23323F                     |
-| $color-03dp                  | white                       | #283A47                     |
+| $color-02dp                  | #fafafa                     | #23323F                     |
+| $color-03dp                  | #f5f5f5                     | #283A47                     |
 | $color-bg-body               | #F2F2F3                     | #192734                     |
 | $color-button-border         | hsl(208, 9.0%, 73.0%)       | hsl(208, 11.0%, 45.0%)      |
 | $color-button-hover-bg       | rgba(255, 255, 255, 0.15)   | rgba(255, 255, 255, 0.15)   |
@@ -260,3 +260,78 @@ A navigation component that allows users to switch between different views.
 
 - Color: $primary
 - Border bottom: 2px solid $primary
+
+### Table
+
+Tables display data in rows and columns with Material Design elevation.
+
+**Table container:**
+
+- Overflow-x: auto (for horizontal scrolling)
+- Border radius: $2
+- Box shadow: Elevation 2 shadow
+- Applied to wrapper div, not table element directly
+
+**Table:**
+
+- Width: 100%
+- Border collapse: separate
+- Border spacing: 0
+- Border radius: $2
+- Overflow: hidden
+- Background color: $02dp
+
+**Table header (th):**
+
+- Padding: 10px 15px
+- Text align: left
+- Font weight: 600
+- Color: $text
+- Font size: $3
+- Background: hsla(0, 0%, 100%, 0.02)
+- Border bottom: 1px solid $input-border
+
+**Table cell (td):**
+
+- Padding: 10px 15px
+- Text align: left
+- Vertical align: top
+- Color: $text-subtle
+- Font size: $3
+- Border bottom: 1px solid $input-border
+
+**First column padding:**
+
+- Padding left: 20px (both th and td)
+
+**Last column padding:**
+
+- Padding right: 20px (both th and td)
+
+**Last row:**
+
+- Border bottom: none (remove on last tr td elements)
+
+### Section
+
+Content wrapper used inside cards for tables and related content.
+
+**Default:**
+
+- Padding: $4
+
+**Section h2:**
+
+- Color: $text
+- Margin: 0 0 $2 0
+- Font size: $6
+- Font weight: 600
+- Display: flex
+- Align items: center
+- Gap: $2
+
+**Section p:**
+
+- Color: $text-subtle
+- Margin: 0 0 $3 0
+- Line height: 1.6

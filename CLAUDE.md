@@ -42,3 +42,33 @@ Template variables (see `pkg/analyzer/report.go`):
 - Keep DESIGN.md in sync with changes
 
 See [DESIGN.md](DESIGN.md) for specs.
+
+## Implementation Guidelines
+
+**Tables:**
+
+- Apply box-shadow to `.table-container`, NOT `.table` element (prevents clipping from overflow-x)
+- Use elevation 2 ($02dp background + elevation 2 shadow) when table is inside elevation 1 card
+- Use `border-collapse: separate` with `border-spacing: 0` to allow rounded corners
+- Border pattern: apply `border-bottom` to cells, remove on last row
+
+**Cards with tables:**
+
+- Use `.card-no-padding` class to remove card padding when it contains tables
+- Apply padding to `.section` wrapper inside the card instead
+- Keep DOM flat inside `.section`: h2, p, and table-container as direct children
+- No intermediate wrapper divs like `.section-header` or `.section-content`
+
+**Example structure:**
+
+```html
+<div class="card card-elevation-1 card-no-padding">
+  <div class="section">
+    <h2>Title</h2>
+    <p>Description</p>
+    <div class="table-container">
+      <table class="table">...</table>
+    </div>
+  </div>
+</div>
+```

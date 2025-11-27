@@ -10,8 +10,8 @@
     <style>
         :root {
             --color-01dp: white;
-            --color-02dp: white;
-            --color-03dp: white;
+            --color-02dp: #fafafa;
+            --color-03dp: #f5f5f5;
             --color-bg-body: #F2F2F3;
             --color-button-border: hsl(208, 9.0%, 73.0%);
             --color-button-hover-bg: rgba(255, 255, 255, 0.15);
@@ -109,6 +109,10 @@
             padding: var(--spacing-3);
             border-radius: var(--radius-3);
             border: none;
+        }
+
+        .card-no-padding {
+            padding: 0;
         }
 
         .card-elevation-1 {
@@ -290,26 +294,17 @@
         }
 
         .section {
-            margin-bottom: var(--spacing-5);
-            overflow: hidden;
-        }
-
-        .section-header {
-            padding: var(--spacing-4) var(--spacing-5);
+            padding: var(--spacing-4);
         }
 
         .section h2 {
             color: var(--color-text);
-            margin: 0;
+            margin-bottom: var(--spacing-2);
             font-size: var(--font-size-6);
             font-weight: 600;
             display: flex;
             align-items: center;
             gap: var(--spacing-2);
-        }
-
-        .section-content {
-            padding: var(--spacing-5);
         }
 
         .section p {
@@ -320,37 +315,54 @@
 
         .table-container {
             overflow-x: auto;
-            border-radius: var(--radius-3);
+            border-radius: var(--radius-2);
+            box-shadow: rgba(0, 0, 0, 0.2) 0px 2px 4px -1px, rgba(0, 0, 0, 0.14) 0px 4px 5px 0px, rgba(0, 0, 0, 0.12) 0px 1px 10px 0px;
         }
 
         .table {
             width: 100%;
-            border-collapse: collapse;
-            background: var(--color-01dp);
-        }
-
-        .table th,
-        .table td {
-            padding: var(--spacing-3);
-            text-align: left;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: var(--radius-2);
+            overflow: hidden;
+            background-color: var(--color-02dp);
         }
 
         .table th {
-            background-color: var(--color-02dp);
+            padding: 10px 15px;
+            text-align: left;
             font-weight: 600;
             color: var(--color-text);
             font-size: var(--font-size-3);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+            background: hsla(0, 0%, 100%, 0.02);
+            border-bottom: 1px solid var(--color-input-border);
         }
 
         .table td {
+            padding: 10px 15px;
+            text-align: left;
+            vertical-align: top;
             color: var(--color-text-subtle);
             font-size: var(--font-size-3);
+            border-bottom: 1px solid var(--color-input-border);
         }
 
-        .table tr:hover {
-            background-color: var(--color-02dp);
+        .table th:first-child,
+        .table td:first-child {
+            padding-left: 20px;
+        }
+
+        .table th:last-child,
+        .table td:last-child {
+            padding-right: 20px;
+        }
+
+        .table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table tbody tr:hover td {
+            background-color: var(--color-03dp);
         }
 
         .table code {
@@ -383,20 +395,24 @@
 
         .annotation-list {
             list-style: none;
-            margin: 0;
-            padding: 0;
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: column;
+            align-items: flex-start;
             gap: var(--spacing-2);
         }
 
-        .annotation-list li {
-            background-color: var(--color-03dp);
+        .annotation-list li,
+        .annotation-badge {
+            background-color: var(--color-bg-body);
             padding: var(--spacing-1) var(--spacing-2);
             border-radius: var(--radius-2);
             font-family: 'SF Mono', Monaco, Inconsolata, 'Roboto Mono', Consolas, 'Courier New', monospace;
             font-size: var(--font-size-2);
             color: var(--color-text-subtle);
+        }
+
+        .annotation-badge {
+            display: inline-block;
         }
 
         .empty-state {
@@ -419,7 +435,7 @@
 
         .tabs {
             display: flex;
-            margin: calc(var(--spacing-3) * -1) calc(var(--spacing-3) * -1) var(--spacing-3);
+            margin: 0;
         }
 
         .tab-button {
@@ -644,7 +660,7 @@
         {{end}}
 
         {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses}}
-        <div class="card card-elevation-1">
+        <div class="card card-elevation-1 card-no-padding">
             <div class="tabs">
                 {{if .UnsupportedIngressAnnotations}}
                 <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Annotations</button>
@@ -656,53 +672,46 @@
 
             {{if .UnsupportedIngressAnnotations}}
             <div id="annotations" class="tab-content active">
-                <div class="section card card-elevation-1">
-                    <div class="section-header">
-                        <h2>📋 Unsupported Annotations Summary</h2>
-                    </div>
-                    <div class="section-content">
-                        <p>The following nginx annotations are not currently supported and will need manual migration:</p>
+                <div class="section">
+                    <h2>📋 Unsupported Annotations Summary</h2>
+                    <p>The following nginx annotations are not currently supported and will need manual migration:</p>
 
-                        <div class="table-container">
-                            <table class="table">
+                    <div class="table-container">
+                        <table class="table">
                                 <thead>
                                     <tr>
-                                        <th>Annotation</th>
-                                        <th>Usage Count</th>
+                                        <th>Unsupported annotations</th>
+                                        <th>Usage count</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {{range $annotation, $count := .UnsupportedIngressAnnotations}}
                                     <tr>
-                                        <td><code>{{$annotation}}</code></td>
+                                        <td><span class="annotation-badge">{{$annotation}}</span></td>
                                         <td>{{$count}}</td>
                                     </tr>
                                     {{end}}
                                 </tbody>
                             </table>
                         </div>
-                    </div>
                 </div>
             </div>
             {{end}}
 
             {{if .UnsupportedIngresses}}
             <div id="ingresses" class="tab-content {{if not .UnsupportedIngressAnnotations}}active{{end}}">
-                <div class="section card card-elevation-1">
-                    <div class="section-header">
-                        <h2>⚠️ Ingresses Requiring Attention</h2>
-                    </div>
-                    <div class="section-content">
-                        <p>The following Ingress resources contain unsupported annotations and will need manual review:</p>
+                <div class="section">
+                    <h2>⚠️ Ingresses Requiring Attention</h2>
+                    <p>The following Ingress resources contain unsupported annotations and will need manual review:</p>
 
-                        <div class="table-container">
-                            <table class="table">
+                    <div class="table-container">
+                        <table class="table">
                                 <thead>
                                     <tr>
                                         <th>Name</th>
                                         <th>Namespace</th>
-                                        <th>Ingress Class</th>
-                                        <th>Unsupported Annotations</th>
+                                        <th>Ingress class</th>
+                                        <th>Unsupported annotations</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -727,7 +736,6 @@
                                 </tbody>
                             </table>
                         </div>
-                    </div>
                 </div>
             </div>
             {{end}}
