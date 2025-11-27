@@ -9,22 +9,25 @@ The tables below define the design tokens and their values, distinguishing betwe
 
 CSS variable prefix: `--color-`.
 
-| Token                      | Light                   | Dark                      |
-|----------------------------|-------------------------|---------------------------|
-| $color-01dp                | white                   | #1E2A38                   |
-| $color-02dp                | white                   | #23323F                   |
-| $color-03dp                | white                   | #283A47                   |
-| $color-bg-body             | #F2F2F3                 | #192734                   |
-| $color-button-primary-text | white                   | hsl(209, 88.0%, 7.0%)   |
-| $color-danger              | hsl(347, 100%, 60.0%) | hsl(347, 100%, 60.0%)   |
-| $color-hiContrast          | black                   | white                     |
-| $color-input-bg            | white                   | #14202A                 |
-| $color-input-border        | #B4BBC1               | #67737F                 |
-| $color-logo-text           | #04192D               | white                     |
-| $color-primary             | hsl(68, 53.0%, 36.0%) | hsl(68, 79.0%, 60.0%)   |
-| $color-primary-hover       | hsl(68, 53.0%, 42.0%) | hsl(68, 79.0%, 66.0%)   |
-| $color-text                | hsla(0, 0%, 0%, 0.74) | hsla(0, 0%, 100%, 0.74) |
-| $color-text-subtle         | hsla(0, 0%, 0%, 0.51) | hsla(0, 0%, 100%, 0.51) |
+| Token                        | Light                       | Dark                        |
+|------------------------------|-----------------------------|-----------------------------|
+| $color-01dp                  | white                       | #1E2A38                     |
+| $color-02dp                  | white                       | #23323F                     |
+| $color-03dp                  | white                       | #283A47                     |
+| $color-bg-body               | #F2F2F3                     | #192734                     |
+| $color-button-border         | hsl(208, 9.0%, 73.0%)       | hsl(208, 11.0%, 45.0%)      |
+| $color-button-hover-bg       | rgba(255, 255, 255, 0.15)   | rgba(255, 255, 255, 0.15)   |
+| $color-button-primary-text   | white                       | hsl(209, 88.0%, 7.0%)       |
+| $color-button-text           | hsla(0, 0%, 0%, 0.54)       | hsla(0, 0%, 100%, 0.74)     |
+| $color-danger                | hsl(347, 100%, 60.0%)       | hsl(347, 100%, 60.0%)       |
+| $color-hiContrast            | black                       | white                       |
+| $color-input-bg              | white                       | #14202A                     |
+| $color-input-border          | #B4BBC1                     | #67737F                     |
+| $color-logo-text             | #04192D                     | white                       |
+| $color-primary               | hsl(68, 53.0%, 36.0%)       | hsl(68, 79.0%, 60.0%)       |
+| $color-primary-hover         | hsl(68, 53.0%, 42.0%)       | hsl(68, 79.0%, 66.0%)       |
+| $color-text                  | hsla(0, 0%, 0%, 0.74)       | hsla(0, 0%, 100%, 0.74)     |
+| $color-text-subtle           | hsla(0, 0%, 0%, 0.51)       | hsla(0, 0%, 100%, 0.51)     |
 
 ### Font sizes
 
@@ -43,6 +46,8 @@ CSS variables prefix: `--font-size-`.
 | $8    | 24px  |
 | $9    | 26px  |
 | $10   | 28px  |
+| $11   | 32px  |
+| $12   | 38px  |
 
 ### Heights, widths, and line heights
 
@@ -95,7 +100,6 @@ CSS variable prefix: `--radius-`.
 - Font size: $10
 - Font weight: 400
 - Line height: 1.33
-- Margin bottom: $2
 
 ## Components
 
@@ -103,15 +107,30 @@ CSS variable prefix: `--radius-`.
 
 **Default:**
 
-- Background color: $primary
-- Text color: $button-primary-text
+- Display: inline-flex
+- Align items: center
+- Justify content: center
+- Gap: $1
+- Background color: transparent
+- Text color: hsla(0, 0%, 0%, 0.54) (light), hsla(0, 0%, 100%, 0.74) (dark)
+- Border: 2px solid hsl(208, 9.0%, 73.0%) (light), 2px solid hsl(208, 11.0%, 45.0%) (dark)
 - Border radius: $3
 - Height: $6
-- Padding: $3
+- Padding: 0 $3
 - Font size: $3
-- Line height: $6
+- Line height: 1
 
 **Hover:**
+
+- Background color: rgba(255, 255, 255, 0.15)
+
+**Primary (additional class):**
+
+- Background color: $primary
+- Text color: $button-primary-text
+- Border: none
+
+**Primary hover:**
 
 - Background color: $primary-hover
 

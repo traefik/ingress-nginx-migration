@@ -13,7 +13,10 @@
             --color-02dp: white;
             --color-03dp: white;
             --color-bg-body: #F2F2F3;
+            --color-button-border: hsl(208, 9.0%, 73.0%);
+            --color-button-hover-bg: rgba(255, 255, 255, 0.15);
             --color-button-primary-text: white;
+            --color-button-text: hsla(0, 0%, 0%, 0.54);
             --color-danger: hsl(347, 100%, 60.0%);
             --color-hiContrast: black;
             --color-input-bg: white;
@@ -34,6 +37,8 @@
             --font-size-8: 24px;
             --font-size-9: 26px;
             --font-size-10: 28px;
+            --font-size-11: 32px;
+            --font-size-12: 38px;
             --height-1: 4px;
             --height-2: 8px;
             --height-3: 16px;
@@ -59,7 +64,9 @@
             --color-02dp: #23323F;
             --color-03dp: #283A47;
             --color-bg-body: #192734;
+            --color-button-border: hsl(208, 11.0%, 45.0%);
             --color-button-primary-text: hsl(209, 88.0%, 7.0%);
+            --color-button-text: hsla(0, 0%, 100%, 0.74);
             --color-hiContrast: white;
             --color-input-bg: #14202A;
             --color-input-border: #67737F;
@@ -88,7 +95,6 @@
             font-size: var(--font-size-10);
             font-weight: 400;
             line-height: 1.33;
-            margin-bottom: var(--spacing-2);
         }
 
         .container {
@@ -122,75 +128,54 @@
 
         .header {
             margin-bottom: var(--spacing-5);
-            overflow: hidden;
         }
 
         .header-top {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: var(--spacing-4) var(--spacing-5);
-            background: var(--color-primary);
-            color: var(--color-button-primary-text);
+            margin-bottom: var(--spacing-2);
         }
 
-        .header-title {
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-3);
+        .header h1 {
+            font-size: var(--font-size-12);
         }
 
-        .header-icon {
-            width: var(--height-6);
-            height: var(--height-6);
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: var(--radius-2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: var(--font-size-5);
+        .header-description {
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-4);
         }
 
         .button {
-            background: var(--color-primary);
-            color: var(--color-button-primary-text);
-            border: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-1);
+            background: transparent;
+            color: var(--color-button-text);
+            border: 2px solid var(--color-button-border);
             border-radius: var(--radius-3);
             height: var(--height-6);
-            padding: var(--spacing-3);
+            padding: 0 var(--spacing-3);
             font-size: var(--font-size-3);
-            line-height: var(--height-6);
+            line-height: 1;
             cursor: pointer;
             font-family: 'Rubik', sans-serif;
             font-weight: 400;
         }
 
         .button:hover {
+            background: var(--color-button-hover-bg);
+        }
+
+        .button-primary {
+            background: var(--color-primary);
+            color: var(--color-button-primary-text);
+            border: none;
+        }
+
+        .button-primary:hover {
             background: var(--color-primary-hover);
-        }
-
-        .theme-toggle {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            padding: var(--spacing-2) var(--spacing-3);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-2);
-        }
-
-        .theme-toggle:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .header-content {
-            padding: var(--spacing-4) var(--spacing-5);
-            background: var(--color-01dp);
-        }
-
-        .header-content p {
-            color: var(--color-text-subtle);
-            font-size: var(--font-size-4);
-            margin: 0;
         }
 
         .stats-grid {
@@ -564,20 +549,15 @@
 </head>
 <body data-theme="light">
     <div class="container">
-        <div class="header card card-elevation-2">
+        <div class="header">
             <div class="header-top">
-                <div class="header-title">
-                    <div class="header-icon">🔍</div>
-                    <h1>Migration Report</h1>
-                </div>
-                <button class="button theme-toggle" onclick="toggleTheme()">
-                    <span id="theme-icon">🌙</span>
+                <h1>Migration Report</h1>
+                <button class="button" onclick="toggleTheme()">
+                    <span id="theme-icon">🌑</span>
                     <span id="theme-text">Dark</span>
                 </button>
             </div>
-            <div class="header-content">
-                <p>Analysis of Kubernetes Nginx Ingress resources for migration to Traefik</p>
-            </div>
+            <p class="header-description">Analysis of Kubernetes Nginx Ingress resources for migration to Traefik</p>
         </div>
 
         <div class="stats-grid">
@@ -643,7 +623,7 @@
                 <p>
                     <strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included.
                 </p>
-                <button id="submitReport" class="button submit-button" onclick="submitReport()">
+                <button id="submitReport" class="button button-primary submit-button" onclick="submitReport()">
                     <span>📤</span>
                     Send to Traefik Labs
                 </button>
@@ -776,7 +756,7 @@
                 localStorage.setItem('theme', 'dark');
             } else {
                 body.setAttribute('data-theme', 'light');
-                themeIcon.textContent = '🌙';
+                themeIcon.textContent = '🌑';
                 themeText.textContent = 'Dark';
                 localStorage.setItem('theme', 'light');
             }
@@ -795,7 +775,7 @@
                 themeIcon.textContent = '☀️';
                 themeText.textContent = 'Light';
             } else {
-                themeIcon.textContent = '🌙';
+                themeIcon.textContent = '🌑';
                 themeText.textContent = 'Dark';
             }
         }
