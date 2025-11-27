@@ -457,6 +457,7 @@
 
         .tabs {
             display: flex;
+            margin: calc(var(--spacing-3) * -1) calc(var(--spacing-3) * -1) var(--spacing-3);
         }
 
         .tab-button {
@@ -690,91 +691,93 @@
         {{end}}
 
         {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses}}
-        <div class="tabs">
+        <div class="card card-elevation-1">
+            <div class="tabs">
+                {{if .UnsupportedIngressAnnotations}}
+                <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Annotations</button>
+                {{end}}
+                {{if .UnsupportedIngresses}}
+                <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">⚠️ Ingresses</button>
+                {{end}}
+            </div>
+
             {{if .UnsupportedIngressAnnotations}}
-            <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Unsupported Annotations</button>
+            <div id="annotations" class="tab-content active">
+                <div class="section card card-elevation-1">
+                    <div class="section-header">
+                        <h2>📋 Unsupported Annotations Summary</h2>
+                    </div>
+                    <div class="section-content">
+                        <p>The following nginx annotations are not currently supported and will need manual migration:</p>
+
+                        <div class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Annotation</th>
+                                        <th>Usage Count</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range $annotation, $count := .UnsupportedIngressAnnotations}}
+                                    <tr>
+                                        <td><code>{{$annotation}}</code></td>
+                                        <td>{{$count}}</td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
             {{end}}
+
             {{if .UnsupportedIngresses}}
-            <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">⚠️ Unsupported Ingresses</button>
-            {{end}}
-        </div>
-        {{end}}
-
-        {{if .UnsupportedIngressAnnotations}}
-        <div id="annotations" class="tab-content active">
-            <div class="section card card-elevation-1">
-                <div class="section-header">
-                    <h2>📋 Unsupported Annotations Summary</h2>
-                </div>
-                <div class="section-content">
-                    <p>The following nginx annotations are not currently supported and will need manual migration:</p>
-
-                    <div class="table-container">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Annotation</th>
-                                    <th>Usage Count</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {{range $annotation, $count := .UnsupportedIngressAnnotations}}
-                                <tr>
-                                    <td><code>{{$annotation}}</code></td>
-                                    <td>{{$count}}</td>
-                                </tr>
-                                {{end}}
-                            </tbody>
-                        </table>
+            <div id="ingresses" class="tab-content {{if not .UnsupportedIngressAnnotations}}active{{end}}">
+                <div class="section card card-elevation-1">
+                    <div class="section-header">
+                        <h2>⚠️ Ingresses Requiring Attention</h2>
                     </div>
-                </div>
-            </div>
-        </div>
-        {{end}}
+                    <div class="section-content">
+                        <p>The following Ingress resources contain unsupported annotations and will need manual review:</p>
 
-        {{if .UnsupportedIngresses}}
-        <div id="ingresses" class="tab-content {{if not .UnsupportedIngressAnnotations}}active{{end}}">
-            <div class="section card card-elevation-1">
-                <div class="section-header">
-                    <h2>⚠️ Ingresses Requiring Attention</h2>
-                </div>
-                <div class="section-content">
-                    <p>The following Ingress resources contain unsupported annotations and will need manual review:</p>
-
-                    <div class="table-container">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Namespace</th>
-                                    <th>Ingress Class</th>
-                                    <th>Unsupported Annotations</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {{range .UnsupportedIngresses}}
-                                <tr>
-                                    <td><strong>{{.Name}}</strong></td>
-                                    <td>{{.Namespace}}</td>
-                                    <td>{{if .IngressClassName}}{{.IngressClassName}}{{else}}<em>default</em>{{end}}</td>
-                                    <td>
-                                        {{if .UnsupportedAnnotations}}
-                                        <ul class="annotation-list">
-                                            {{range .UnsupportedAnnotations}}
-                                            <li>{{.}}</li>
+                        <div class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Namespace</th>
+                                        <th>Ingress Class</th>
+                                        <th>Unsupported Annotations</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .UnsupportedIngresses}}
+                                    <tr>
+                                        <td><strong>{{.Name}}</strong></td>
+                                        <td>{{.Namespace}}</td>
+                                        <td>{{if .IngressClassName}}{{.IngressClassName}}{{else}}<em>default</em>{{end}}</td>
+                                        <td>
+                                            {{if .UnsupportedAnnotations}}
+                                            <ul class="annotation-list">
+                                                {{range .UnsupportedAnnotations}}
+                                                <li>{{.}}</li>
+                                                {{end}}
+                                            </ul>
+                                            {{else}}
+                                            <em>None</em>
                                             {{end}}
-                                        </ul>
-                                        {{else}}
-                                        <em>None</em>
-                                        {{end}}
-                                    </td>
-                                </tr>
-                                {{end}}
-                            </tbody>
-                        </table>
+                                        </td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
+            {{end}}
         </div>
         {{end}}
     </div>
