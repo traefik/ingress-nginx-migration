@@ -5,8 +5,7 @@ export GO111MODULE=on
 
 BIN_NAME := ingress-nginx-analyzer
 
-TAG_NAME := $(shell git tag -l --contains HEAD)
-SHA := $(shell git rev-parse HEAD)
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_DATE := $(shell date -u '+%Y-%m-%d_%I:%M:%S%p')
 
 # Default build target
@@ -17,10 +16,11 @@ DOCKER_BUILD_PLATFORMS ?= linux/amd64,linux/arm64
 default: lint test clean build
 
 build:
-	@echo SHA: $(SHA) $(BUILD_DATE)
+	@echo VERSION: $(VERSION) BUILD_DATE: $(BUILD_DATE)
 	CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build \
-	-ldflags "-s -w -X github.com/traefik/ingress-nginx-analyzer/pkg/client.Token=$(TOKEN) -X github.com/traefik/ingress-nginx-analyzer/pkg/version.Codename=$(CODENAME) -X github.com/traefik/ingress-nginx-analyzer/pkg/version.BuildDate=$(DATE)" \
-	-installsuffix nocgo -o "./dist/${GOOS}/${GOARCH}/${BIN_NAME}" ./cmd
+	-trimpath \
+	-ldflags "-s -w -X github.com/traefik/ingress-nginx-analyzer/pkg/version.Version=$(VERSION) -X github.com/traefik/ingress-nginx-analyzer/pkg/version.BuildDate=$(BUILD_DATE)" \
+	-o "./dist/${GOOS}/${GOARCH}/${BIN_NAME}" ./cmd
 
 clean:
 	rm -rf dist/ cover.out

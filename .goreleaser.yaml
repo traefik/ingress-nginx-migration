@@ -1,0 +1,42 @@
+project_name: ingress-nginx-analyzer
+dist: dist
+version: 2
+
+builds:
+  - id: ingress-nginx-analyzer
+    binary: ingress-nginx-analyzer
+    main: ./cmd/
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/traefik/ingress-nginx-analyzer/pkg/version.Version={{.Version}} -X github.com/traefik/ingress-nginx-analyzer/pkg/version.BuildDate={{.Date}}
+    flags:
+      - -trimpath
+    goos:
+      - windows
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+changelog:
+  disable: true
+
+archives:
+  - id: ingress-nginx-analyzer
+    ids:
+      - ingress-nginx-analyzer
+    formats:
+      - tar.gz
+    wrap_in_directory: true
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: '{{ .ProjectName }}-{{ .Tag }}-{{ .Os }}-{{ .Arch }}'
+    files:
+      - readme.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_checksums.txt"

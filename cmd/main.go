@@ -14,6 +14,7 @@ import (
 	"github.com/traefik/ingress-nginx-analyzer/pkg/client"
 	"github.com/traefik/ingress-nginx-analyzer/pkg/handlers"
 	"github.com/traefik/ingress-nginx-analyzer/pkg/logger"
+	"github.com/traefik/ingress-nginx-analyzer/pkg/version"
 	"github.com/urfave/cli/v3"
 )
 
@@ -26,12 +27,25 @@ const (
 
 // FIXME authentication
 // FIXME authentify client to avoid multiple report
-// FIXME version command and distribution
 // FIXME add message with a link to open the web interface
 func main() {
 	cmd := &cli.Command{
-		Name:  "Ingress Nginx Analyzer",
-		Usage: "Analyze Nginx Ingresses to build a migration report to Traefik", // FIXME
+		Name:    "ingress-nginx-analyzer",
+		Usage:   "Analyze Nginx Ingresses to build a migration report to Traefik",
+		Version: version.Version,
+		Commands: []*cli.Command{
+			{
+				Name:  "version",
+				Usage: "Shows the current version",
+				Action: func(_ context.Context, _ *cli.Command) error {
+					if err := version.Print(os.Stdout); err != nil {
+						return err
+					}
+					fmt.Println()
+					return nil
+				},
+			},
+		},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    flagAddr,
