@@ -21,7 +21,7 @@ type Analyzer struct {
 	ingressLister v1.IngressLister
 }
 
-func New(ctx context.Context, kubeconfig string) (*Analyzer, error) {
+func New(ctx context.Context, kubeconfig string, namespace string) (*Analyzer, error) {
 	var (
 		err       error
 		k8sClient *kubernetes.Clientset
@@ -43,7 +43,7 @@ func New(ctx context.Context, kubeconfig string) (*Analyzer, error) {
 		return nil, fmt.Errorf("creating k8s client: %w", err)
 	}
 
-	k8sFactory := kinformers.NewSharedInformerFactoryWithOptions(k8sClient, resyncPeriod)
+	k8sFactory := kinformers.NewSharedInformerFactoryWithOptions(k8sClient, resyncPeriod, kinformers.WithNamespace(namespace))
 
 	// Getting the informer will make the cache get populated and usable with listers.
 	k8sFactory.Networking().V1().Ingresses().Informer()

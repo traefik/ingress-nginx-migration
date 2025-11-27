@@ -2,6 +2,7 @@ package handlers
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -44,6 +45,11 @@ func NewHandlers(analyzer *analyzer.Analyzer, client Client) (*Handlers, error) 
 	}, nil
 }
 
+type reportVariables struct {
+	analyzer.Report
+	ReportJSON template.JS
+}
+
 // Report generates and returns the HTML report for the Ingress Nginx migration.
 func (h *Handlers) Report(rw http.ResponseWriter, _ *http.Request) {
 	report, err := h.analyzer.Report()
@@ -53,10 +59,22 @@ func (h *Handlers) Report(rw http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
+	reportJSON, err := json.Marshal(report)
+	if err != nil {
+		log.Err(err).Msg("Error while marshalling the report")
+		JSONInternalServerError(rw)
+		return
+	}
+
+	reportVars := reportVariables{
+		Report:     report,
+		ReportJSON: template.JS(reportJSON),
+	}
+
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	rw.WriteHeader(http.StatusOK)
 
-	if err := h.reportTmpl.Execute(rw, report); err != nil {
+	if err := h.reportTmpl.Execute(rw, reportVars); err != nil {
 		log.Err(err).Msg("Error while executing report template")
 		JSONInternalServerError(rw)
 		return

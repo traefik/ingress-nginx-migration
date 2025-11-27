@@ -62,20 +62,20 @@ var supportedAnnotations = map[string]struct{}{
 }
 
 type IngressReport struct {
-	Name                   string
-	Namespace              string
-	IngressClassName       string
-	UnsupportedAnnotations []string
+	Name                   string   `json:"name"`
+	Namespace              string   `json:"namespace"`
+	IngressClassName       string   `json:"ingressClassName"`
+	UnsupportedAnnotations []string `json:"unsupportedAnnotations"`
 }
 
 type Report struct {
-	IngressCount                  int
-	CompatibleIngressCount        int
-	UnsupportedIngressCount       int
-	CompatiblePercentage          float64
-	UnsupportedPercentage         float64
-	UnsupportedIngressAnnotations map[string]int
-	UnsupportedIngresses          []IngressReport
+	IngressCount                  int             `json:"ingressCount"`
+	CompatibleIngressCount        int             `json:"compatibleIngressCount"`
+	UnsupportedIngressCount       int             `json:"unsupportedIngressCount"`
+	CompatiblePercentage          float64         `json:"compatiblePercentage"`
+	UnsupportedPercentage         float64         `json:"unsupportedPercentage"`
+	UnsupportedIngressAnnotations map[string]int  `json:"unsupportedIngressAnnotations"`
+	UnsupportedIngresses          []IngressReport `json:"unsupportedIngresses"`
 }
 
 func computeReport(ingresses []*netv1.Ingress) Report {

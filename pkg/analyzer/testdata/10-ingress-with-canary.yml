@@ -25,6 +25,12 @@ metadata:
   name: ingress-with-canary-test
   namespace: default
   annotations:
+
+    nginx.ingress.kubernetes.io/enable-opentracing: "true"
+    nginx.ingress.kubernetes.io/opentracing-operation-name: "HTTP $request_method $uri"
+    nginx.ingress.kubernetes.io/opentracing-location: "true"
+    nginx.ingress.kubernetes.io/opentracing-location-operation-name: "HTTP $request_method $uri"
+
     # Canary deployment annotations - NOT supported by Traefik
     nginx.ingress.kubernetes.io/canary: "true"
     nginx.ingress.kubernetes.io/canary-weight: "20"
