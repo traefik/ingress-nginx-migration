@@ -576,7 +576,6 @@
                 <div class="stat-icon">✅</div>
                 <div class="stat-card-content">
                     <div class="stat-value">{{.CompatibleIngressCount}}</div>
-                    {{if gt .IngressCount 0}}
                     <div class="stat-label-row">
                         <div class="stat-label">Compatible ingresses</div>
                         <div class="progress-label">{{printf "%.1f" .CompatibleIngressPercentage}}%</div>
@@ -598,9 +597,6 @@
                         </div>
                     </div>
                     {{end}}
-                    {{else}}
-                    <div class="stat-label">Compatible</div>
-                    {{end}}
                 </div>
             </div>
 
@@ -608,7 +604,6 @@
                 <div class="stat-icon">⚠️</div>
                 <div class="stat-card-content">
                     <div class="stat-value">{{.UnsupportedIngressCount}}</div>
-                    {{if gt .IngressCount 0}}
                     <div class="stat-label-row">
                         <div class="stat-label">Need attention</div>
                         <div class="progress-label">{{printf "%.1f" .UnsupportedIngressPercentage}}%</div>
@@ -616,9 +611,6 @@
                     <div class="progress-bar">
                         <div class="progress-fill" style="width: {{printf "%.1f" .UnsupportedIngressPercentage}}%"></div>
                     </div>
-                    {{else}}
-                    <div class="stat-label">Need attention</div>
-                    {{end}}
                 </div>
             </div>
         </div>
