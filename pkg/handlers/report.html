@@ -7,6 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/prismjs@1.30.0/themes/prism.css" rel="stylesheet" id="prism-light" />
+    <link href="https://unpkg.com/prismjs@1.30.0/themes/prism-tomorrow.css" rel="stylesheet" id="prism-dark" disabled />
     <style>
         :root {
             --color-01dp: white;
@@ -600,6 +602,47 @@
             margin: 0;
         }
 
+        .send-report-toggle {
+            color: var(--color-primary);
+            font-size: var(--font-size-2);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .send-report-toggle:hover {
+            color: var(--color-primary-hover);
+        }
+
+        .send-report-data {
+            display: none;
+            margin-top: var(--spacing-3);
+            padding: var(--spacing-3);
+            border: 1px solid var(--color-input-border);
+            border-radius: var(--radius-2);
+            background-color: var(--color-01dp);
+            font-size: var(--font-size-2);
+            color: var(--color-text-subtle);
+            max-height: 400px;
+            overflow: auto;
+        }
+
+        .send-report-data.visible {
+            display: block;
+        }
+
+        .send-report-data pre {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            overflow: visible !important;
+            max-height: none !important;
+        }
+
+        .send-report-data code {
+            font-size: var(--font-size-1);
+            background: transparent;
+        }
+
         .footer {
             text-align: center;
             padding: var(--spacing-6) var(--spacing-3);
@@ -740,12 +783,15 @@
                                                 <div class="send-report-text">
                                                     <h4>🤝 Help Improve Traefik</h4>
                                                     <p>Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone. Your data helps us understand real-world usage patterns and prioritize development efforts.</p>
-                                                    <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included.</p>
+                                                    <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included. <span class="send-report-toggle" onclick="toggleReportData('reportData1')">Click to show report data</span></p>
                                                 </div>
                                                 <button id="submitReport1" class="button button-primary submit-button" onclick="submitReport()">
                                                     <span>📤</span>
                                                     Send to Traefik Labs
                                                 </button>
+                                            </div>
+                                            <div id="reportData1" class="send-report-data">
+                                                <pre><code class="language-json"></code></pre>
                                             </div>
                                             <div id="submissionStatus1" class="submission-status"></div>
                                         </td>
@@ -802,12 +848,15 @@
                                                 <div class="send-report-text">
                                                     <h4>🤝 Help Improve Traefik</h4>
                                                     <p>Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone. Your data helps us understand real-world usage patterns and prioritize development efforts.</p>
-                                                    <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included.</p>
+                                                    <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included. <span class="send-report-toggle" onclick="toggleReportData('reportData2')">Click to show report data</span></p>
                                                 </div>
                                                 <button id="submitReport2" class="button button-primary submit-button" onclick="submitReport()">
                                                     <span>📤</span>
                                                     Send to Traefik Labs
                                                 </button>
+                                            </div>
+                                            <div id="reportData2" class="send-report-data">
+                                                <pre><code class="language-json"></code></pre>
                                             </div>
                                             <div id="submissionStatus2" class="submission-status"></div>
                                         </td>
@@ -836,17 +885,23 @@
             const themeIcon = document.getElementById('theme-icon');
             const themeText = document.getElementById('theme-text');
             const currentTheme = body.getAttribute('data-theme');
+            const prismLight = document.getElementById('prism-light');
+            const prismDark = document.getElementById('prism-dark');
 
             if (currentTheme === 'light') {
                 body.setAttribute('data-theme', 'dark');
                 themeIcon.textContent = '☀️';
                 themeText.textContent = 'Light';
                 localStorage.setItem('theme', 'dark');
+                prismLight.disabled = true;
+                prismDark.disabled = false;
             } else {
                 body.setAttribute('data-theme', 'light');
                 themeIcon.textContent = '🌑';
                 themeText.textContent = 'Dark';
                 localStorage.setItem('theme', 'light');
+                prismLight.disabled = false;
+                prismDark.disabled = true;
             }
         }
 
@@ -856,15 +911,21 @@
             const body = document.body;
             const themeIcon = document.getElementById('theme-icon');
             const themeText = document.getElementById('theme-text');
+            const prismLight = document.getElementById('prism-light');
+            const prismDark = document.getElementById('prism-dark');
 
             body.setAttribute('data-theme', savedTheme);
 
             if (savedTheme === 'dark') {
                 themeIcon.textContent = '☀️';
                 themeText.textContent = 'Light';
+                prismLight.disabled = true;
+                prismDark.disabled = false;
             } else {
                 themeIcon.textContent = '🌑';
                 themeText.textContent = 'Dark';
+                prismLight.disabled = false;
+                prismDark.disabled = true;
             }
         }
 
@@ -889,6 +950,25 @@
             // Show the selected tab and mark button as active
             document.getElementById(tabName).classList.add("active");
             evt.currentTarget.classList.add("active");
+        }
+
+        function toggleReportData(elementId) {
+            const element = document.getElementById(elementId);
+            const toggle = event.target;
+
+            if (element.classList.contains('visible')) {
+                element.classList.remove('visible');
+                toggle.textContent = 'Click to show report data';
+            } else {
+                // Populate JSON on first open
+                const codeElement = element.querySelector('code');
+                if (!codeElement.textContent) {
+                    codeElement.textContent = JSON.stringify(reportJSON, null, 2);
+                    Prism.highlightElement(codeElement);
+                }
+                element.classList.add('visible');
+                toggle.textContent = 'Click to hide report data';
+            }
         }
 
         function submitReport() {
@@ -942,5 +1022,8 @@
     <script>
         const reportJSON = {{.ReportJSON}};
     </script>
+
+    <script src="https://unpkg.com/prismjs@1.30.0/components/prism-core.min.js"></script>
+    <script src="https://unpkg.com/prismjs@1.30.0/plugins/autoloader/prism-autoloader.min.js"></script>
 </body>
 </html>
