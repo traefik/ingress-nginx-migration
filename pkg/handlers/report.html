@@ -184,6 +184,20 @@
             background: var(--color-primary-hover);
         }
 
+        .button-small {
+            height: var(--height-5);
+            padding: 0 var(--spacing-2);
+            font-size: var(--font-size-1);
+            line-height: var(--height-5);
+        }
+
+        .button-large {
+            height: var(--height-7);
+            padding: 0 var(--spacing-3);
+            font-size: var(--font-size-3);
+            line-height: var(--height-7);
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -534,11 +548,6 @@
             font-size: var(--font-size-4);
         }
 
-        .submit-button {
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-2);
-        }
 
         .submit-button:disabled {
             background: var(--color-text-subtle);
@@ -603,7 +612,6 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: var(--spacing-4);
         }
 
         .send-report-buttons {
@@ -611,6 +619,7 @@
             flex-direction: column;
             gap: var(--spacing-2);
             align-items: center;
+            margin: 0 var(--spacing-3);
         }
 
         .send-report-dismiss {
@@ -641,7 +650,7 @@
 
         .send-report-text p {
             color: var(--color-text-subtle);
-            font-size: var(--font-size-2);
+            font-size: var(--font-size-3);
             margin: 0;
         }
 
@@ -814,6 +823,7 @@
                                 </thead>
                                 <tbody>
                                     {{$first := true}}
+                                    {{$root := .}}
                                     {{range $annotation, $count := .UnsupportedIngressAnnotations}}
                                     <tr>
                                         <td><span class="annotation-badge">{{$annotation}}</span></td>
@@ -824,13 +834,12 @@
                                         <td colspan="2">
                                             <div class="send-report-content">
                                                 <div class="send-report-text">
-                                                    <h4>🤝 Help Improve Traefik</h4>
-                                                    <p>Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone. Your data helps us understand real-world usage patterns and prioritize development efforts.</p>
-                                                    <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included. <span class="send-report-toggle" onclick="toggleReportData('reportData1')">Click to show report data</span></p>
+                                                    <h4>See all {{len $root.UnsupportedIngressAnnotations}} annotations and help improve Traefik</h4>
+                                                    <p>Share your migration report with Traefik Labs - it only takes one click and helps make Traefik better for everyone.<br/>Your data helps us understand real-world usage patterns and prioritize NGINX provider compatibility improvements.<br/><strong>Privacy notice:</strong> Only anonymized statistics are shared - no sensitive data, names, or configurations. <span class="send-report-toggle" onclick="toggleReportData('reportData1')">View what's sent</span></p>
                                                 </div>
                                                 <div class="send-report-buttons">
-                                                    <button id="submitReport1" class="button button-primary submit-button" onclick="submitReport()">
-                                                        Send to Traefik Labs
+                                                    <button id="submitReport1" class="button button-primary button-large submit-button" onclick="submitReport()">
+                                                        Share Report
                                                     </button>
                                                     <button class="send-report-dismiss" onclick="dismissBanner('annotations')">Skip</button>
                                                 </div>
@@ -869,6 +878,7 @@
                                 </thead>
                                 <tbody>
                                     {{$first := true}}
+                                    {{$root := .}}
                                     {{range .UnsupportedIngresses}}
                                     <tr>
                                         <td><strong>{{.Name}}</strong></td>
@@ -891,13 +901,12 @@
                                         <td colspan="4">
                                             <div class="send-report-content">
                                                 <div class="send-report-text">
-                                                    <h4>🤝 Help Improve Traefik</h4>
-                                                    <p>Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone. Your data helps us understand real-world usage patterns and prioritize development efforts.</p>
-                                                    <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included. <span class="send-report-toggle" onclick="toggleReportData('reportData2')">Click to show report data</span></p>
+                                                    <h4>See all {{len $root.UnsupportedIngresses}} ingresses and help improve Traefik</h4>
+                                                    <p>Share your migration report with Traefik Labs - it only takes one click and helps make Traefik better for everyone.<br/>Your data helps us understand real-world usage patterns and prioritize NGINX provider compatibility improvements.<br/><strong>Privacy notice:</strong> Only anonymized statistics are shared - no sensitive data, names, or configurations. <span class="send-report-toggle" onclick="toggleReportData('reportData2')">View what's sent</span></p>
                                                 </div>
                                                 <div class="send-report-buttons">
-                                                    <button id="submitReport2" class="button button-primary submit-button" onclick="submitReport()">
-                                                        Send to Traefik Labs
+                                                    <button id="submitReport2" class="button button-primary button-large submit-button" onclick="submitReport()">
+                                                        Share Report
                                                     </button>
                                                     <button class="send-report-dismiss" onclick="dismissBanner('ingresses')">Skip</button>
                                                 </div>
@@ -1075,7 +1084,7 @@
                 });
                 buttons.forEach(button => {
                     button.disabled = false;
-                    button.textContent = 'Send to Traefik Labs';
+                    button.textContent = 'Share Report';
                 });
             });
         }

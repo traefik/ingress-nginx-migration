@@ -136,11 +136,11 @@ CSS variable prefix: `--radius-`.
 
 **Sizes:**
 
-| Size    | Height | Font Size | Line Height |
-|---------|--------|-----------|-------------|
-| small   | $5     | $1        | $5          |
-| default | $6     | $3        | $6          |
-| large   | $7     | $3        | $7          |
+| Size    | Height | Font Size | Line Height | Padding    | Border Radius |
+|---------|--------|-----------|-------------|------------|---------------|
+| small   | $5     | $1        | $5          | 0 $2       | $3            |
+| default | $6     | $3        | $6          | 0 $3       | $3            |
+| large   | $7     | $3        | $7          | 0 $3       | $3            |
 
 ### Input
 
