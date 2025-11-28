@@ -25,9 +25,9 @@ const (
 	flagNamespaces = "namespaces"
 )
 
-// FIXME authentication
-// FIXME authentify client to avoid multiple report
-// FIXME add message with a link to open the web interface
+// FIXME authentication.
+// FIXME authentify client to avoid multiple report.
+// FIXME add message with a link to open the web interface.
 func main() {
 	cmd := &cli.Command{
 		Name:    "ingress-nginx-analyzer",
@@ -70,9 +70,7 @@ func main() {
 				Sources: cli.EnvVars(strcase.ToSNAKE(flagNamespaces)),
 			},
 		},
-		Action: func(ctx context.Context, command *cli.Command) error {
-			return run(ctx, command)
-		},
+		Action: run,
 	}
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {

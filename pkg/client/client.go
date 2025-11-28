@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -93,7 +94,7 @@ func buildTLSConfig() (*tls.Config, error) {
 
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCertPEM) {
-			return nil, fmt.Errorf("failed to parse CA certificate")
+			return nil, errors.New("failed to parse CA certificate")
 		}
 
 		tlsConfig.RootCAs = caCertPool
@@ -105,7 +106,7 @@ func buildTLSConfig() (*tls.Config, error) {
 func (c *Client) SendReport(report analyzer.Report) error {
 	reportBytes, err := json.Marshal(report)
 	if err != nil {
-		return fmt.Errorf("marshalling report to JSON: %w", err)
+		return fmt.Errorf("marshaling report to JSON: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, c.endpointURL, bytes.NewBuffer(reportBytes))

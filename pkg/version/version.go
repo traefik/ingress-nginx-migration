@@ -1,7 +1,6 @@
 package version
 
 import (
-	"fmt"
 	"io"
 	"runtime"
 	"text/template"
@@ -43,5 +42,5 @@ func Print(wr io.Writer) error {
 
 // String returns the version as a simple string.
 func String() string {
-	return fmt.Sprintf("ingress-nginx-analyzer %s", Version)
+	return "ingress-nginx-analyzer " + Version
 }

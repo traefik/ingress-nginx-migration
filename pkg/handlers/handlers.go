@@ -61,7 +61,7 @@ func (h *Handlers) Report(rw http.ResponseWriter, _ *http.Request) {
 
 	reportJSON, err := json.Marshal(report)
 	if err != nil {
-		log.Err(err).Msg("Error while marshalling the report")
+		log.Err(err).Msg("Error while marshaling the report")
 		JSONInternalServerError(rw)
 		return
 	}

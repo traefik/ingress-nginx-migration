@@ -18,7 +18,7 @@ func JSONInternalServerError(rw http.ResponseWriter) {
 }
 
 // JSONErrorf handles an JSON error.
-func JSONErrorf(rw http.ResponseWriter, code int, errMsg string, args ...interface{}) {
+func JSONErrorf(rw http.ResponseWriter, code int, errMsg string, args ...any) {
 	JSONError(rw, code, fmt.Sprintf(errMsg, args...))
 }
 
