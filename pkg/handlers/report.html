@@ -791,24 +791,24 @@
         <div class="card card-elevation-1 card-no-padding">
             <div class="tabs">
                 {{if .UnsupportedIngressAnnotations}}
-                <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Annotations<span class="tab-badge">{{len .UnsupportedIngressAnnotations}}</span></button>
+                <button class="tab-button active" onclick="showTab(event, 'annotations')">Annotations<span class="tab-badge">{{len .UnsupportedIngressAnnotations}}</span></button>
                 {{end}}
                 {{if .UnsupportedIngresses}}
-                <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">⚠️ Ingresses<span class="tab-badge">{{len .UnsupportedIngresses}}</span></button>
+                <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">Ingresses<span class="tab-badge">{{len .UnsupportedIngresses}}</span></button>
                 {{end}}
             </div>
 
             {{if .UnsupportedIngressAnnotations}}
             <div id="annotations" class="tab-content active">
                 <div class="section">
-                    <h2>📋 Unsupported Annotations Summary</h2>
+                    <h2>Unsupported annotations summary</h2>
                     <p>The following nginx annotations are not currently supported and will need manual migration:</p>
 
                     <div class="table-container">
                         <table class="table">
                                 <thead>
                                     <tr>
-                                        <th>Unsupported annotations</th>
+                                        <th>Annotation</th>
                                         <th>Usage count</th>
                                     </tr>
                                 </thead>
@@ -854,7 +854,7 @@
             {{if .UnsupportedIngresses}}
             <div id="ingresses" class="tab-content {{if not .UnsupportedIngressAnnotations}}active{{end}}">
                 <div class="section">
-                    <h2>⚠️ Ingresses Requiring Attention</h2>
+                    <h2>Ingresses requiring attention</h2>
                     <p>The following Ingress resources contain unsupported annotations and will need manual review:</p>
 
                     <div class="table-container">
