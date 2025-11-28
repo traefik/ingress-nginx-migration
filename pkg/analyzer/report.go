@@ -25,6 +25,7 @@ import (
 //…
 
 const ingressNginxAnnotationPrefix = "nginx.ingress.kubernetes.io"
+const traefikIngressAnnotationPrefix = "traefik.ingress.kubernetes.io"
 
 // FIXME: all value are not supported
 // Supported annotations contains the list of supported nginx ingress controller annotations.
@@ -66,13 +67,27 @@ type IngressReport struct {
 	Namespace              string   `json:"namespace"`
 	IngressClassName       string   `json:"ingressClassName"`
 	UnsupportedAnnotations []string `json:"unsupportedAnnotations"`
+	HasNginxAnnotation     bool     `json:"-"`
 }
 
 type Report struct {
-	IngressCount                  int             `json:"ingressCount"`
-	CompatibleIngressCount        int             `json:"compatibleIngressCount"`
+	IngressCount int `json:"ingressCount"`
+
+	// Compatible means all ingresses compatible with the ingress-nginx provider,
+	// would they be with or without NGINX annotations.
+	CompatibleIngressCount      int     `json:"compatibleIngressCount"`
+	CompatibleIngressPercentage float64 `json:"compatibleIngressPercentage"`
+
+	// Vanilla means all (supported) ingresses without ingress-nginx controller specific annotations.
+	VanillaIngressCount      int     `json:"vanillaIngressCount"`
+	VanillaIngressPercentage float64 `json:"vanillaIngressPercentage"`
+
+	// Supported means all ingresses with only supported ingress-nginx controller specific annotations.
+	SupportedIngressCount      int     `json:"supportedIngressCount"`
+	SupportedIngressPercentage float64 `json:"supportedIngressPercentage"`
+
+	// Unsupported means all ingresses with unsupported ingress-nginx controller specific annotations.
 	UnsupportedIngressCount       int             `json:"unsupportedIngressCount"`
-	CompatiblePercentage          float64         `json:"compatiblePercentage"`
 	UnsupportedPercentage         float64         `json:"unsupportedPercentage"`
 	UnsupportedIngressAnnotations map[string]int  `json:"unsupportedIngressAnnotations"`
 	UnsupportedIngresses          []IngressReport `json:"unsupportedIngresses"`
@@ -87,11 +102,20 @@ func computeReport(ingresses []*netv1.Ingress) Report {
 	for _, ing := range ingresses {
 		ingReport := computeIngressReport(ing)
 
+		// Ingress is compatible
 		if len(ingReport.UnsupportedAnnotations) == 0 {
 			report.CompatibleIngressCount++
+
+			if ingReport.HasNginxAnnotation {
+				report.SupportedIngressCount++
+				continue
+			}
+
+			report.VanillaIngressCount++
 			continue
 		}
 
+		// Has unsupported nginx annotations
 		report.UnsupportedIngressCount++
 		report.UnsupportedIngresses = append(report.UnsupportedIngresses, *ingReport)
 
@@ -102,7 +126,9 @@ func computeReport(ingresses []*netv1.Ingress) Report {
 
 	// Calculate percentages
 	if report.IngressCount > 0 {
-		report.CompatiblePercentage = float64(report.CompatibleIngressCount) / float64(report.IngressCount) * 100
+		report.CompatibleIngressPercentage = float64(report.CompatibleIngressCount) / float64(report.IngressCount) * 100
+		report.VanillaIngressPercentage = float64(report.VanillaIngressCount) / float64(report.IngressCount) * 100
+		report.SupportedIngressPercentage = float64(report.SupportedIngressCount) / float64(report.IngressCount) * 100
 		report.UnsupportedPercentage = float64(report.UnsupportedIngressCount) / float64(report.IngressCount) * 100
 	}
 
@@ -110,14 +136,17 @@ func computeReport(ingresses []*netv1.Ingress) Report {
 }
 
 func computeIngressReport(ing *netv1.Ingress) *IngressReport {
+	var hasNginxAnnotation bool
 	var unsupportedAnnotations []string
-	for annotation := range ing.Annotations {
-		if !strings.HasPrefix(annotation, ingressNginxAnnotationPrefix) {
-			continue
-		}
 
-		if _, ok := supportedAnnotations[annotation]; !ok {
-			unsupportedAnnotations = append(unsupportedAnnotations, annotation)
+	for annotation := range ing.Annotations {
+		if strings.HasPrefix(annotation, ingressNginxAnnotationPrefix) {
+			hasNginxAnnotation = true
+			// This is a nginx ingress annotation
+			if _, ok := supportedAnnotations[annotation]; !ok {
+				unsupportedAnnotations = append(unsupportedAnnotations, annotation)
+			}
+			// FIXME: also check the annotation value? like nginx.ingress.kubernetes.io/backend-protocol: FCGI
 		}
 	}
 
@@ -126,5 +155,6 @@ func computeIngressReport(ing *netv1.Ingress) *IngressReport {
 		Namespace:              ing.Namespace,
 		IngressClassName:       ptr.Deref(ing.Spec.IngressClassName, ""),
 		UnsupportedAnnotations: unsupportedAnnotations,
+		HasNginxAnnotation:     hasNginxAnnotation,
 	}
 }

@@ -261,6 +261,39 @@
             text-align: right;
         }
 
+        .stat-insights {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .insight-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            font-size: 0.875rem;
+        }
+
+        .insight-icon {
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+        }
+
+        .insight-label {
+            color: var(--text-secondary);
+            flex: 1;
+        }
+
+        .insight-value {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
         .section {
             background: var(--bg-primary);
             border: 1px solid var(--border-color);
@@ -613,9 +646,24 @@
                 <div class="stat-label">Compatible</div>
                 {{if gt .IngressCount 0}}
                 <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{printf "%.1f" .CompatiblePercentage}}%"></div>
+                    <div class="progress-fill" style="width: {{printf "%.1f" .CompatibleIngressPercentage}}%"></div>
                 </div>
-                <div class="progress-label">{{printf "%.1f" .CompatiblePercentage}}%</div>
+                <div class="progress-label">{{printf "%.1f" .CompatibleIngressPercentage}}%</div>
+                {{end}}
+
+                {{if gt .CompatibleIngressCount 0}}
+                <div class="stat-insights">
+                    <div class="insight-item">
+                        <span class="insight-icon">🟢</span>
+                        <span class="insight-label">No annotations:</span>
+                        <span class="insight-value">{{.VanillaIngressCount}} ({{printf "%.1f" .VanillaIngressPercentage}}%)</span>
+                    </div>
+                    <div class="insight-item">
+                        <span class="insight-icon">🟡</span>
+                        <span class="insight-label">With supported annotations:</span>
+                        <span class="insight-value">{{.SupportedIngressCount}} ({{printf "%.1f" .SupportedIngressPercentage}}%)</span>
+                    </div>
+                </div>
                 {{end}}
             </div>
 
@@ -633,6 +681,7 @@
                 {{end}}
             </div>
         </div>
+
 
         <div class="submission-section">
             <div class="submission-content">
@@ -673,10 +722,10 @@
         {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses}}
         <div class="tabs">
             {{if .UnsupportedIngressAnnotations}}
-            <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Annotations</button>
+            <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Unsupported Annotations</button>
             {{end}}
             {{if .UnsupportedIngresses}}
-            <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">⚠️ Ingresses</button>
+            <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">⚠️ Unsupported Ingresses</button>
             {{end}}
         </div>
         {{end}}

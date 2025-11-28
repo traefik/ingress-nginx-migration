@@ -17,4 +17,7 @@ spec:
           - path: /
             pathType: Exact
             backend:
-            
+              service:
+                name: whoami
+                port:
+                  number: 80

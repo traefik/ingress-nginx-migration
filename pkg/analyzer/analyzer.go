@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	kinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -17,11 +18,11 @@ import (
 const resyncPeriod = 5 * time.Minute
 
 type Analyzer struct {
-	k8sClient     *kubernetes.Clientset
-	ingressLister v1.IngressLister
+	k8sClient      *kubernetes.Clientset
+	ingressListers []v1.IngressLister
 }
 
-func New(ctx context.Context, kubeconfig string, namespace string) (*Analyzer, error) {
+func New(ctx context.Context, kubeconfig string, namespaces []string) (*Analyzer, error) {
 	var (
 		err       error
 		k8sClient *kubernetes.Clientset
@@ -43,33 +44,49 @@ func New(ctx context.Context, kubeconfig string, namespace string) (*Analyzer, e
 		return nil, fmt.Errorf("creating k8s client: %w", err)
 	}
 
-	k8sFactory := kinformers.NewSharedInformerFactoryWithOptions(k8sClient, resyncPeriod, kinformers.WithNamespace(namespace))
+	if len(namespaces) == 0 {
+		// All namespaces.
+		namespaces = []string{""}
+	}
 
-	// Getting the informer will make the cache get populated and usable with listers.
-	k8sFactory.Networking().V1().Ingresses().Informer()
-	k8sFactory.Networking().V1().IngressClasses().Informer()
+	var ingressListers []v1.IngressLister
+	for _, namespace := range namespaces {
+		k8sFactory := kinformers.NewSharedInformerFactoryWithOptions(k8sClient, resyncPeriod, kinformers.WithNamespace(namespace))
 
-	k8sFactory.Start(ctx.Done())
+		// Getting the informer will make the cache get populated and usable with listers.
+		k8sFactory.Networking().V1().Ingresses().Informer()
+		k8sFactory.Networking().V1().IngressClasses().Informer()
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+		k8sFactory.Start(ctx.Done())
 
-	for t, ok := range k8sFactory.WaitForCacheSync(ctxWithTimeout.Done()) {
-		if !ok {
-			return nil, fmt.Errorf("timed out waiting for K8s caches to sync %s", t.String())
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		for t, ok := range k8sFactory.WaitForCacheSync(ctxWithTimeout.Done()) {
+			if !ok {
+				return nil, fmt.Errorf("timed out waiting for K8s caches to sync %s", t.String())
+			}
 		}
+
+		ingressListers = append(ingressListers, k8sFactory.Networking().V1().Ingresses().Lister())
 	}
 
 	return &Analyzer{
-		k8sClient:     k8sClient,
-		ingressLister: k8sFactory.Networking().V1().Ingresses().Lister(),
+		k8sClient:      k8sClient,
+		ingressListers: ingressListers,
 	}, nil
 }
 
 func (a *Analyzer) Report() (Report, error) {
-	ingresses, err := a.ingressLister.List(labels.Everything())
-	if err != nil {
-		return Report{}, fmt.Errorf("listing Ingresses: %w", err)
+	var ingresses []*netv1.Ingress
+
+	for _, ingressLister := range a.ingressListers {
+		nsIngresses, err := ingressLister.List(labels.Everything())
+		if err != nil {
+			return Report{}, fmt.Errorf("listing Ingresses: %w", err)
+		}
+
+		ingresses = append(ingresses, nsIngresses...)
 	}
 
 	return computeReport(ingresses), nil
