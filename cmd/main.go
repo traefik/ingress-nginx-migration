@@ -14,7 +14,6 @@ import (
 	"github.com/traefik/ingress-nginx-analyzer/pkg/client"
 	"github.com/traefik/ingress-nginx-analyzer/pkg/handlers"
 	"github.com/traefik/ingress-nginx-analyzer/pkg/logger"
-	"github.com/traefik/ingress-nginx-analyzer/pkg/version"
 	"github.com/urfave/cli/v3"
 )
 
@@ -36,15 +35,9 @@ func main() {
 		Usage: "Analyze Nginx Ingresses to build a migration report to Traefik",
 		Commands: []*cli.Command{
 			{
-				Name:  "version",
-				Usage: "Shows the current version",
-				Action: func(_ context.Context, _ *cli.Command) error {
-					if err := version.Print(os.Stdout); err != nil {
-						return err
-					}
-					fmt.Println()
-					return nil
-				},
+				Name:   "version",
+				Usage:  "Shows the current version",
+				Action: printVersion,
 			},
 		},
 		Flags: []cli.Flag{
