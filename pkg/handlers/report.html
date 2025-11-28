@@ -675,9 +675,9 @@
                 <div class="stat-label">Need Attention</div>
                 {{if gt .IngressCount 0}}
                 <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{printf "%.1f" .UnsupportedPercentage}}%"></div>
+                    <div class="progress-fill" style="width: {{printf "%.1f" .UnsupportedIngressPercentage}}%"></div>
                 </div>
-                <div class="progress-label">{{printf "%.1f" .UnsupportedPercentage}}%</div>
+                <div class="progress-label">{{printf "%.1f" .UnsupportedIngressPercentage}}%</div>
                 {{end}}
             </div>
         </div>

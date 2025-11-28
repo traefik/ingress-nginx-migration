@@ -7,26 +7,12 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+const (
+	ingressNginxAnnotationPrefix = "nginx.ingress.kubernetes.io"
+	ingressNgnixControllerName   = "k8s.io/ingress-nginx"
+)
+
 // FIXME timestamp
-
-//Analyzed 100 Ingress Resources.
-//80 Ingress (80%) can be migrated automatically
-//20 Ingress (20%) needs your attention because of unsupported annotations (see below)
-//
-//Unsupported annotations
-//Annotation 1 (number of times it appears)
-//Annotation 2 (number of times it appears)
-//Annotation 3 (number of times it appears)
-//…
-//
-//Ingress Resource to migrate
-//Name 1 (list of annotations)
-//Name 2 (list of annotations)
-//…
-
-const ingressNginxAnnotationPrefix = "nginx.ingress.kubernetes.io"
-const traefikIngressAnnotationPrefix = "traefik.ingress.kubernetes.io"
-
 // FIXME: all value are not supported
 // Supported annotations contains the list of supported nginx ingress controller annotations.
 var supportedAnnotations = map[string]struct{}{
@@ -62,6 +48,7 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/cors-max-age":            {},
 }
 
+// IngressReport contains the analysis report for a single Ingress.
 type IngressReport struct {
 	Name                   string   `json:"name"`
 	Namespace              string   `json:"namespace"`
@@ -70,11 +57,12 @@ type IngressReport struct {
 	HasNginxAnnotation     bool     `json:"-"`
 }
 
+// Report contains the analysis report for all Ingresses.
+// FIXME: maybe we should report which IgressClasses are discovered.
 type Report struct {
 	IngressCount int `json:"ingressCount"`
 
-	// Compatible means all ingresses compatible with the ingress-nginx provider,
-	// would they be with or without NGINX annotations.
+	// Compatible means all ingresses compatible with the ingress-nginx provider with or without NGINX annotations.
 	CompatibleIngressCount      int     `json:"compatibleIngressCount"`
 	CompatibleIngressPercentage float64 `json:"compatibleIngressPercentage"`
 
@@ -88,18 +76,31 @@ type Report struct {
 
 	// Unsupported means all ingresses with unsupported ingress-nginx controller specific annotations.
 	UnsupportedIngressCount       int             `json:"unsupportedIngressCount"`
-	UnsupportedPercentage         float64         `json:"unsupportedPercentage"`
+	UnsupportedIngressPercentage  float64         `json:"unsupportedIngressPercentage"`
 	UnsupportedIngressAnnotations map[string]int  `json:"unsupportedIngressAnnotations"`
 	UnsupportedIngresses          []IngressReport `json:"unsupportedIngresses"`
 }
 
-func computeReport(ingresses []*netv1.Ingress) Report {
-	report := Report{
-		IngressCount:                  len(ingresses),
-		UnsupportedIngressAnnotations: make(map[string]int),
+func computeReport(ingressClasses []*netv1.IngressClass, ingresses []*netv1.Ingress) Report {
+	report := Report{UnsupportedIngressAnnotations: make(map[string]int)}
+
+	// First we select all Nginx ingress classes.
+	ingressClasseNames := make(map[string]struct{})
+	for _, ic := range ingressClasses {
+		if ic.Spec.Controller == ingressNgnixControllerName {
+			ingressClasseNames[ic.Name] = struct{}{}
+		}
 	}
 
+	// Then we iterate over all ingresses and check if they use a Nginx ingress class.
 	for _, ing := range ingresses {
+		// Ingress does not use a Nginx ingress class.
+		if _, exists := ingressClasseNames[ptr.Deref(ing.Spec.IngressClassName, "")]; !exists {
+			continue
+		}
+
+		report.IngressCount++
+
 		ingReport := computeIngressReport(ing)
 
 		// Ingress is compatible
@@ -129,7 +130,7 @@ func computeReport(ingresses []*netv1.Ingress) Report {
 		report.CompatibleIngressPercentage = float64(report.CompatibleIngressCount) / float64(report.IngressCount) * 100
 		report.VanillaIngressPercentage = float64(report.VanillaIngressCount) / float64(report.IngressCount) * 100
 		report.SupportedIngressPercentage = float64(report.SupportedIngressCount) / float64(report.IngressCount) * 100
-		report.UnsupportedPercentage = float64(report.UnsupportedIngressCount) / float64(report.IngressCount) * 100
+		report.UnsupportedIngressPercentage = float64(report.UnsupportedIngressCount) / float64(report.IngressCount) * 100
 	}
 
 	return report

@@ -20,7 +20,7 @@ OS/Arch:      {{.OS}}/{{.Arch}}`
 func Print(wr io.Writer) error {
 	tmpl, err := template.New("").Parse(versionTemplate)
 	if err != nil {
-		return err
+		return fmt.Errorf("parsing version template: %w", err)
 	}
 
 	v := struct {
@@ -36,11 +36,5 @@ func Print(wr io.Writer) error {
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
 	}
-
 	return tmpl.Execute(wr, v)
-}
-
-// String returns the version as a simple string.
-func String() string {
-	return "ingress-nginx-analyzer " + Version
 }

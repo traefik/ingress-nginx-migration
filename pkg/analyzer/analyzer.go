@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	kinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/listers/networking/v1"
+	listersnetv1 "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -18,16 +19,23 @@ import (
 const resyncPeriod = 5 * time.Minute
 
 type Analyzer struct {
-	k8sClient      *kubernetes.Clientset
-	ingressListers []v1.IngressLister
+	k8sClient          *kubernetes.Clientset
+	ingressListers     []listersnetv1.IngressLister
+	ingressClassLister listersnetv1.IngressClassLister
 }
 
+// FIXME not sure if we should start the informers in the new, this made the code untestable.
 func New(ctx context.Context, kubeconfig string, namespaces []string) (*Analyzer, error) {
+	// When namespaces list is empty all namespaces are listed.
+	if len(namespaces) == 0 {
+		namespaces = []string{v1.NamespaceAll}
+	}
+
+	// Creates the Kubernetes client.
 	var (
 		err       error
 		k8sClient *kubernetes.Clientset
 	)
-
 	config, err := rest.InClusterConfig()
 	if err != nil && !errors.Is(err, rest.ErrNotInCluster) {
 		return nil, fmt.Errorf("creating in cluster config: %w", err)
@@ -41,45 +49,51 @@ func New(ctx context.Context, kubeconfig string, namespaces []string) (*Analyzer
 
 	k8sClient, err = kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("creating k8s client: %w", err)
+		return nil, fmt.Errorf("creating k8s client from config: %w", err)
 	}
 
-	if len(namespaces) == 0 {
-		// All namespaces.
-		namespaces = []string{""}
+	// Initialize IngressClass listers.
+	clusterFactory := kinformers.NewSharedInformerFactoryWithOptions(k8sClient, resyncPeriod)
+	clusterFactory.Networking().V1().IngressClasses().Lister()
+
+	clusterFactory.Start(ctx.Done())
+	for t, ok := range clusterFactory.WaitForCacheSync(ctx.Done()) {
+		if !ok {
+			return nil, fmt.Errorf("timed out waiting for K8s caches to sync %s", t.String())
+		}
 	}
 
-	var ingressListers []v1.IngressLister
+	// Initialize Ingress listers per namespace.
+	var ingressListers []listersnetv1.IngressLister
 	for _, namespace := range namespaces {
-		k8sFactory := kinformers.NewSharedInformerFactoryWithOptions(k8sClient, resyncPeriod, kinformers.WithNamespace(namespace))
+		namespaceFactory := kinformers.NewSharedInformerFactoryWithOptions(k8sClient, resyncPeriod, kinformers.WithNamespace(namespace))
+		namespaceFactory.Networking().V1().Ingresses().Informer()
 
-		// Getting the informer will make the cache get populated and usable with listers.
-		k8sFactory.Networking().V1().Ingresses().Informer()
-		k8sFactory.Networking().V1().IngressClasses().Informer()
+		ingressListers = append(ingressListers, namespaceFactory.Networking().V1().Ingresses().Lister())
 
-		k8sFactory.Start(ctx.Done())
-
-		ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-
-		for t, ok := range k8sFactory.WaitForCacheSync(ctxWithTimeout.Done()) {
+		namespaceFactory.Start(ctx.Done())
+		for t, ok := range namespaceFactory.WaitForCacheSync(ctx.Done()) {
 			if !ok {
 				return nil, fmt.Errorf("timed out waiting for K8s caches to sync %s", t.String())
 			}
 		}
-
-		ingressListers = append(ingressListers, k8sFactory.Networking().V1().Ingresses().Lister())
 	}
 
 	return &Analyzer{
-		k8sClient:      k8sClient,
-		ingressListers: ingressListers,
+		k8sClient:          k8sClient,
+		ingressListers:     ingressListers,
+		ingressClassLister: clusterFactory.Networking().V1().IngressClasses().Lister(),
 	}, nil
 }
 
+// Report generates and returns the analysis report.
 func (a *Analyzer) Report() (Report, error) {
-	var ingresses []*netv1.Ingress
+	ingressClasses, err := a.ingressClassLister.List(labels.Everything())
+	if err != nil {
+		return Report{}, fmt.Errorf("listing IngressClasses: %w", err)
+	}
 
+	var ingresses []*netv1.Ingress
 	for _, ingressLister := range a.ingressListers {
 		nsIngresses, err := ingressLister.List(labels.Everything())
 		if err != nil {
@@ -89,5 +103,5 @@ func (a *Analyzer) Report() (Report, error) {
 		ingresses = append(ingresses, nsIngresses...)
 	}
 
-	return computeReport(ingresses), nil
+	return computeReport(ingressClasses, ingresses), nil
 }
