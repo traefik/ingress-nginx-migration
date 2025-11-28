@@ -12,7 +12,7 @@ import (
 )
 
 //go:embed report.html
-var reportHTML string
+var htmlReportTemplate string
 
 // Client is the interface for sending reports.
 type Client interface {
@@ -33,7 +33,7 @@ type Handlers struct {
 
 // NewHandlers creates HTTP handlers.
 func NewHandlers(analyzer *analyzer.Analyzer, client Client) (*Handlers, error) {
-	reportTmpl, err := template.New("report").Parse(reportHTML)
+	reportTmpl, err := template.New("report").Parse(htmlReportTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parsing report template: %w", err)
 	}

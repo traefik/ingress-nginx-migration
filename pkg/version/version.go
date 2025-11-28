@@ -1,6 +1,7 @@
 package version
 
 import (
+	"fmt"
 	"io"
 	"runtime"
 	"text/template"

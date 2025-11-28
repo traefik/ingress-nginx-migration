@@ -29,6 +29,7 @@ const (
 // FIXME authentication.
 // FIXME authentify client to avoid multiple report.
 // FIXME add message with a link to open the web interface.
+// FIXME generate the report only once, and provide a method for refreshing it.
 func main() {
 	cmd := &cli.Command{
 		Name:  "ingress-nginx-analyzer",
@@ -91,11 +92,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("creating analyzer: %w", err)
 	}
 
-	endpointURL := os.Getenv("ENDPOINT_STATS_URL")
-	if endpointURL == "" {
-		endpointURL = "https://collect.ingressnginxmigration.org/a2181946f5561e7e7405000e5c94de97"
-	}
-	client, err := client.New(endpointURL)
+	client, err := client.New(os.Getenv("ENDPOINT_STATS_URL"))
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}

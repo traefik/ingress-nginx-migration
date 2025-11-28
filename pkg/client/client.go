@@ -28,79 +28,38 @@ var (
 	CACertB64 = ""
 )
 
+// Client is a client for sending reports to a remote endpoint.
 type Client struct {
 	endpointURL string
 	httpClient  *http.Client
 }
 
+// New creates a new Client.
 func New(endpointURL string) (*Client, error) {
+	// When no endpointURL is provided, use the default one.
+	if endpointURL == "" {
+		endpointURL = "https://collect.ingressnginxmigration.org/a2181946f5561e7e7405000e5c94de97"
+	}
+
 	tlsConfig, err := buildTLSConfig()
 	if err != nil {
 		return nil, fmt.Errorf("building TLS config: %w", err)
 	}
 
-	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			TLSClientConfig: tlsConfig,
-		},
-	}
-
 	return &Client{
 		endpointURL: endpointURL,
-		httpClient:  httpClient,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSClientConfig: tlsConfig,
+			},
+		},
 	}, nil
-}
-
-func buildTLSConfig() (*tls.Config, error) {
-	// If no certificates are provided, return nil (use default TLS config).
-	if ClientCertB64 == "" || ClientKeyB64 == "" {
-		return nil, nil
-	}
-
-	// Decode client certificate and key from base64.
-	clientCertPEM, err := base64.StdEncoding.DecodeString(ClientCertB64)
-	if err != nil {
-		return nil, fmt.Errorf("decoding client certificate: %w", err)
-	}
-
-	clientKeyPEM, err := base64.StdEncoding.DecodeString(ClientKeyB64)
-	if err != nil {
-		return nil, fmt.Errorf("decoding client key: %w", err)
-	}
-
-	// Load client certificate and key.
-	clientCert, err := tls.X509KeyPair(clientCertPEM, clientKeyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("loading client certificate: %w", err)
-	}
-
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{clientCert},
-		MinVersion:   tls.VersionTLS12,
-	}
-
-	// If CA certificate is provided, use it to verify the server.
-	if CACertB64 != "" {
-		caCertPEM, err := base64.StdEncoding.DecodeString(CACertB64)
-		if err != nil {
-			return nil, fmt.Errorf("decoding CA certificate: %w", err)
-		}
-
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCertPEM) {
-			return nil, errors.New("failed to parse CA certificate")
-		}
-
-		tlsConfig.RootCAs = caCertPool
-	}
-
-	return tlsConfig, nil
 }
 
 // reportPayload is a lightweight version of analyzer.Report for API transmission.
@@ -150,4 +109,50 @@ func (c *Client) SendReport(report analyzer.Report) error {
 	}
 
 	return nil
+}
+
+func buildTLSConfig() (*tls.Config, error) {
+	// If no certificates are provided, return nil (use default TLS config).
+	if ClientCertB64 == "" || ClientKeyB64 == "" {
+		return nil, nil
+	}
+
+	// Decode client certificate and key from base64.
+	clientCertPEM, err := base64.StdEncoding.DecodeString(ClientCertB64)
+	if err != nil {
+		return nil, fmt.Errorf("decoding client certificate: %w", err)
+	}
+
+	clientKeyPEM, err := base64.StdEncoding.DecodeString(ClientKeyB64)
+	if err != nil {
+		return nil, fmt.Errorf("decoding client key: %w", err)
+	}
+
+	// Load client certificate and key.
+	clientCert, err := tls.X509KeyPair(clientCertPEM, clientKeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("loading client certificate: %w", err)
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{clientCert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	// If CA certificate is provided, use it to verify the server.
+	if CACertB64 != "" {
+		caCertPEM, err := base64.StdEncoding.DecodeString(CACertB64)
+		if err != nil {
+			return nil, fmt.Errorf("decoding CA certificate: %w", err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+			return nil, errors.New("failed to parse CA certificate")
+		}
+
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	return tlsConfig, nil
 }
