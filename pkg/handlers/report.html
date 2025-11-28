@@ -567,6 +567,39 @@
             display: block;
         }
 
+        .send-report-row td {
+            padding: var(--spacing-4);
+            border-bottom: 1px solid var(--color-input-border);
+        }
+
+        .table tbody tr.send-report-row:hover td {
+            background-color: transparent;
+        }
+
+        .send-report-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--spacing-4);
+        }
+
+        .send-report-text {
+            flex: 1;
+        }
+
+        .send-report-text h4 {
+            color: var(--color-text);
+            font-size: var(--font-size-4);
+            font-weight: 600;
+            margin: 0 0 var(--spacing-1) 0;
+        }
+
+        .send-report-text p {
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-2);
+            margin: 0;
+        }
+
         .footer {
             text-align: center;
             padding: var(--spacing-6) var(--spacing-3);
@@ -650,24 +683,6 @@
             </div>
         </div>
 
-        <div class="submission-section card card-elevation-1">
-            <div class="submission-content">
-                <h3>🤝 Help Improve Traefik</h3>
-                <p>
-                    Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone.
-                    Your data helps us understand real-world usage patterns and prioritize development efforts.
-                </p>
-                <p>
-                    <strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included.
-                </p>
-                <button id="submitReport" class="button button-primary submit-button" onclick="submitReport()">
-                    <span>📤</span>
-                    Send to Traefik Labs
-                </button>
-                <div id="submissionStatus" class="submission-status"></div>
-            </div>
-        </div>
-
         {{if eq .IngressCount 0}}
         <div class="section card card-elevation-1">
             <div class="empty-state">
@@ -712,11 +727,31 @@
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    {{$first := true}}
                                     {{range $annotation, $count := .UnsupportedIngressAnnotations}}
                                     <tr>
                                         <td><span class="annotation-badge">{{$annotation}}</span></td>
                                         <td>{{$count}}</td>
                                     </tr>
+                                    {{if $first}}
+                                    <tr class="send-report-row">
+                                        <td colspan="2">
+                                            <div class="send-report-content">
+                                                <div class="send-report-text">
+                                                    <h4>🤝 Help Improve Traefik</h4>
+                                                    <p>Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone. Your data helps us understand real-world usage patterns and prioritize development efforts.</p>
+                                                    <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included.</p>
+                                                </div>
+                                                <button id="submitReport1" class="button button-primary submit-button" onclick="submitReport()">
+                                                    <span>📤</span>
+                                                    Send to Traefik Labs
+                                                </button>
+                                            </div>
+                                            <div id="submissionStatus1" class="submission-status"></div>
+                                        </td>
+                                    </tr>
+                                    {{$first = false}}
+                                    {{end}}
                                     {{end}}
                                 </tbody>
                             </table>
@@ -742,6 +777,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    {{$first := true}}
                                     {{range .UnsupportedIngresses}}
                                     <tr>
                                         <td><strong>{{.Name}}</strong></td>
@@ -759,6 +795,25 @@
                                             {{end}}
                                         </td>
                                     </tr>
+                                    {{if $first}}
+                                    <tr class="send-report-row">
+                                        <td colspan="4">
+                                            <div class="send-report-content">
+                                                <div class="send-report-text">
+                                                    <h4>🤝 Help Improve Traefik</h4>
+                                                    <p>Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone. Your data helps us understand real-world usage patterns and prioritize development efforts.</p>
+                                                    <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included.</p>
+                                                </div>
+                                                <button id="submitReport2" class="button button-primary submit-button" onclick="submitReport()">
+                                                    <span>📤</span>
+                                                    Send to Traefik Labs
+                                                </button>
+                                            </div>
+                                            <div id="submissionStatus2" class="submission-status"></div>
+                                        </td>
+                                    </tr>
+                                    {{$first = false}}
+                                    {{end}}
                                     {{end}}
                                 </tbody>
                             </table>
@@ -837,16 +892,19 @@
         }
 
         function submitReport() {
-            const button = document.getElementById('submitReport');
-            const status = document.getElementById('submissionStatus');
+            // Find all submit buttons and disable them
+            const buttons = document.querySelectorAll('.submit-button');
+            const statuses = document.querySelectorAll('.submission-status');
 
-            // Reset status
-            status.className = 'submission-status loading';
-            status.textContent = 'Sending report to Traefik Labs...';
+            buttons.forEach(button => {
+                button.disabled = true;
+                button.innerHTML = '<span>⏳</span> Sending...';
+            });
 
-            // Disable button
-            button.disabled = true;
-            button.textContent = 'Sending...';
+            statuses.forEach(status => {
+                status.className = 'submission-status loading';
+                status.textContent = 'Sending report to Traefik Labs...';
+            });
 
             // Make the request
             fetch('/send-report', {
@@ -857,18 +915,26 @@
             })
             .then(response => {
                 if (response.ok) {
-                    status.className = 'submission-status success';
-                    status.textContent = '✅ Thank you! Your report has been sent to Traefik Labs successfully.';
-                    button.textContent = 'Sent ✅';
+                    statuses.forEach(status => {
+                        status.className = 'submission-status success';
+                        status.textContent = '✅ Thank you! Your report has been sent successfully.';
+                    });
+                    buttons.forEach(button => {
+                        button.innerHTML = '<span>✅</span> Sent';
+                    });
                 } else {
                     throw new Error('Failed to send report');
                 }
             })
             .catch(error => {
-                status.className = 'submission-status error';
-                status.textContent = '❌ Failed to send report. Please try again later.';
-                button.disabled = false;
-                button.textContent = '📤 Send to Traefik Labs';
+                statuses.forEach(status => {
+                    status.className = 'submission-status error';
+                    status.textContent = '❌ Failed to send report. Please try again later.';
+                });
+                buttons.forEach(button => {
+                    button.disabled = false;
+                    button.innerHTML = '<span>📤</span> Send to Traefik Labs';
+                });
             });
         }
     </script>
