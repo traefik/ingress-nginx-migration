@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	flagAddr       = "addr"
-	flagLogLevel   = "log-level"
-	flagKubeconfig = "kubeconfig"
-	flagNamespaces = "namespaces"
+	flagAddr            = "addr"
+	flagLogLevel        = "log-level"
+	flagKubeconfig      = "kubeconfig"
+	flagNamespaces      = "namespaces"
+	flagControllerClass = "controller-class"
 )
 
 // FIXME authentication.
@@ -30,9 +31,8 @@ const (
 // FIXME add message with a link to open the web interface.
 func main() {
 	cmd := &cli.Command{
-		Name:    "ingress-nginx-analyzer",
-		Usage:   "Analyze Nginx Ingresses to build a migration report to Traefik",
-		Version: version.Version,
+		Name:  "ingress-nginx-analyzer",
+		Usage: "Analyze Nginx Ingresses to build a migration report to Traefik",
 		Commands: []*cli.Command{
 			{
 				Name:  "version",
@@ -49,25 +49,30 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    flagAddr,
-				Usage:   flagAddr,
+				Usage:   "Defines the address to listen on for serving the migration report.",
 				Sources: cli.EnvVars(strcase.ToSNAKE(flagAddr)),
 				Value:   ":8080",
 			},
 			&cli.StringFlag{
 				Name:    flagLogLevel,
-				Usage:   flagLogLevel,
+				Usage:   "Defines the log level.",
 				Sources: cli.EnvVars(strcase.ToSNAKE(flagLogLevel)),
 				Value:   "info",
 			},
 			&cli.StringFlag{
 				Name:    flagKubeconfig,
-				Usage:   flagKubeconfig,
+				Usage:   "Defines the kubeconfig file to use to connect to the Kubernetes cluster.",
 				Sources: cli.EnvVars(strcase.ToSNAKE(flagKubeconfig)),
 			},
 			&cli.StringSliceFlag{
 				Name:    flagNamespaces,
-				Usage:   flagNamespaces,
+				Usage:   "Defines the namespaces to analyze. When empty, all namespaces are analyzed.",
 				Sources: cli.EnvVars(strcase.ToSNAKE(flagNamespaces)),
+			},
+			&cli.StringSliceFlag{
+				Name:    flagControllerClass,
+				Usage:   "Defines the Ingress Controller class to analyze. When empty, 'k8s.io/ingress-nginx' is used.",
+				Sources: cli.EnvVars(strcase.ToSNAKE(flagControllerClass)),
 			},
 		},
 		Action: run,
@@ -81,7 +86,7 @@ func main() {
 func run(ctx context.Context, cmd *cli.Command) error {
 	logger.Setup(cmd.String(flagLogLevel))
 
-	analyzer, err := analyzer.New(ctx, cmd.String(flagKubeconfig), cmd.StringSlice(flagNamespaces))
+	analyzer, err := analyzer.New(ctx, cmd.String(flagKubeconfig), cmd.StringSlice(flagNamespaces), cmd.String(flagControllerClass))
 	if err != nil {
 		return fmt.Errorf("creating analyzer: %w", err)
 	}

@@ -16,19 +16,28 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const resyncPeriod = 5 * time.Minute
+const (
+	resyncPeriod          = 5 * time.Minute
+	defaultControllerName = "k8s.io/ingress-nginx"
+)
 
 type Analyzer struct {
 	k8sClient          *kubernetes.Clientset
+	controllerClass    string
 	ingressListers     []listersnetv1.IngressLister
 	ingressClassLister listersnetv1.IngressClassLister
 }
 
 // FIXME not sure if we should start the informers in the new, this made the code untestable.
-func New(ctx context.Context, kubeconfig string, namespaces []string) (*Analyzer, error) {
+func New(ctx context.Context, kubeconfig string, namespaces []string, controllerClass string) (*Analyzer, error) {
 	// When namespaces list is empty all namespaces are listed.
 	if len(namespaces) == 0 {
 		namespaces = []string{v1.NamespaceAll}
+	}
+
+	// When controller class is empty, we use the default one.
+	if controllerClass == "" {
+		controllerClass = defaultControllerName
 	}
 
 	// Creates the Kubernetes client.
@@ -81,6 +90,7 @@ func New(ctx context.Context, kubeconfig string, namespaces []string) (*Analyzer
 
 	return &Analyzer{
 		k8sClient:          k8sClient,
+		controllerClass:    controllerClass,
 		ingressListers:     ingressListers,
 		ingressClassLister: clusterFactory.Networking().V1().IngressClasses().Lister(),
 	}, nil
@@ -103,5 +113,5 @@ func (a *Analyzer) Report() (Report, error) {
 		ingresses = append(ingresses, nsIngresses...)
 	}
 
-	return computeReport(ingressClasses, ingresses), nil
+	return computeReport(ingressClasses, ingresses, a.controllerClass), nil
 }

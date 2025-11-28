@@ -8,8 +8,9 @@ import (
 )
 
 const (
+	defaultAnnotationValue       = "nginx"
+	annotationIngressClass       = "kubernetes.io/ingress.class"
 	ingressNginxAnnotationPrefix = "nginx.ingress.kubernetes.io"
-	ingressNgnixControllerName   = "k8s.io/ingress-nginx"
 )
 
 // FIXME timestamp
@@ -81,21 +82,24 @@ type Report struct {
 	UnsupportedIngresses          []IngressReport `json:"unsupportedIngresses"`
 }
 
-func computeReport(ingressClasses []*netv1.IngressClass, ingresses []*netv1.Ingress) Report {
+func computeReport(ingressClasses []*netv1.IngressClass, ingresses []*netv1.Ingress, controllerClass string) Report {
 	report := Report{UnsupportedIngressAnnotations: make(map[string]int)}
 
-	// First we select all Nginx ingress classes.
-	ingressClasseNames := make(map[string]struct{})
+	// First we filter all Nginx ingress classes.
+	ingressClassNames := make(map[string]struct{})
 	for _, ic := range ingressClasses {
-		if ic.Spec.Controller == ingressNgnixControllerName {
-			ingressClasseNames[ic.Name] = struct{}{}
+		if ic.Spec.Controller == controllerClass {
+			ingressClassNames[ic.Name] = struct{}{}
 		}
 	}
 
 	// Then we iterate over all ingresses and check if they use a Nginx ingress class.
 	for _, ing := range ingresses {
 		// Ingress does not use a Nginx ingress class.
-		if _, exists := ingressClasseNames[ptr.Deref(ing.Spec.IngressClassName, "")]; !exists {
+		if _, exists := ingressClassNames[ptr.Deref(ing.Spec.IngressClassName, "")]; !exists && len(ingressClassNames) > 0 {
+			continue
+		}
+		if ing.Annotations[annotationIngressClass] != "" && ing.Annotations[annotationIngressClass] != defaultAnnotationValue {
 			continue
 		}
 
