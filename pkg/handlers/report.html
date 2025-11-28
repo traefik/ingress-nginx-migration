@@ -285,6 +285,10 @@
             flex-shrink: 0;
         }
 
+        .stat-card.incompatible .insight-icon {
+            filter: grayscale(1) brightness(10);
+        }
+
         .insight-label {
             color: var(--color-text-subtle);
         }
@@ -563,6 +567,11 @@
             display: block;
         }
 
+        .submission-status.error .error-icon {
+            filter: grayscale(1) brightness(10);
+            margin-right: var(--spacing-1);
+        }
+
         .submission-status.loading {
             background-color: var(--color-03dp);
             color: var(--color-text-subtle);
@@ -578,11 +587,45 @@
             background-color: transparent;
         }
 
+        .send-report-row ~ tr:not(.send-report-row) {
+            display: none;
+        }
+
+        .send-report-row.dismissed {
+            display: none;
+        }
+
+        .send-report-row.dismissed ~ tr {
+            display: table-row !important;
+        }
+
         .send-report-content {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: var(--spacing-4);
+        }
+
+        .send-report-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-2);
+            align-items: center;
+        }
+
+        .send-report-dismiss {
+            color: var(--color-primary);
+            font-size: var(--font-size-2);
+            cursor: pointer;
+            text-decoration: underline;
+            background: none;
+            border: none;
+            padding: 0;
+            font-family: 'Rubik', sans-serif;
+        }
+
+        .send-report-dismiss:hover {
+            color: var(--color-primary-hover);
         }
 
         .send-report-text {
@@ -785,10 +828,12 @@
                                                     <p>Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone. Your data helps us understand real-world usage patterns and prioritize development efforts.</p>
                                                     <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included. <span class="send-report-toggle" onclick="toggleReportData('reportData1')">Click to show report data</span></p>
                                                 </div>
-                                                <button id="submitReport1" class="button button-primary submit-button" onclick="submitReport()">
-                                                    <span>📤</span>
-                                                    Send to Traefik Labs
-                                                </button>
+                                                <div class="send-report-buttons">
+                                                    <button id="submitReport1" class="button button-primary submit-button" onclick="submitReport()">
+                                                        Send to Traefik Labs
+                                                    </button>
+                                                    <button class="send-report-dismiss" onclick="dismissBanner('annotations')">Skip</button>
+                                                </div>
                                             </div>
                                             <div id="reportData1" class="send-report-data">
                                                 <pre><code class="language-json"></code></pre>
@@ -850,10 +895,12 @@
                                                     <p>Share your migration analysis with Traefik Labs to help us improve the NGINX provider and make future migrations easier for everyone. Your data helps us understand real-world usage patterns and prioritize development efforts.</p>
                                                     <p><strong>Privacy:</strong> Only migration statistics and annotation usage patterns are shared. No sensitive configuration data, service names, or cluster information is included. <span class="send-report-toggle" onclick="toggleReportData('reportData2')">Click to show report data</span></p>
                                                 </div>
-                                                <button id="submitReport2" class="button button-primary submit-button" onclick="submitReport()">
-                                                    <span>📤</span>
-                                                    Send to Traefik Labs
-                                                </button>
+                                                <div class="send-report-buttons">
+                                                    <button id="submitReport2" class="button button-primary submit-button" onclick="submitReport()">
+                                                        Send to Traefik Labs
+                                                    </button>
+                                                    <button class="send-report-dismiss" onclick="dismissBanner('ingresses')">Skip</button>
+                                                </div>
                                             </div>
                                             <div id="reportData2" class="send-report-data">
                                                 <pre><code class="language-json"></code></pre>
@@ -971,6 +1018,14 @@
             }
         }
 
+        function dismissBanner(tabName) {
+            const tab = document.getElementById(tabName);
+            const sendReportRow = tab.querySelector('.send-report-row');
+            if (sendReportRow) {
+                sendReportRow.classList.add('dismissed');
+            }
+        }
+
         function submitReport() {
             // Find all submit buttons and disable them
             const buttons = document.querySelectorAll('.submit-button');
@@ -978,7 +1033,7 @@
 
             buttons.forEach(button => {
                 button.disabled = true;
-                button.innerHTML = '<span>⏳</span> Sending...';
+                button.textContent = 'Sending...';
             });
 
             statuses.forEach(status => {
@@ -1000,8 +1055,15 @@
                         status.textContent = '✅ Thank you! Your report has been sent successfully.';
                     });
                     buttons.forEach(button => {
-                        button.innerHTML = '<span>✅</span> Sent';
+                        button.textContent = 'Sent';
                     });
+
+                    // Dismiss both banners after successful submission
+                    setTimeout(() => {
+                        document.querySelectorAll('.send-report-row').forEach(row => {
+                            row.classList.add('dismissed');
+                        });
+                    }, 2000);
                 } else {
                     throw new Error('Failed to send report');
                 }
@@ -1009,11 +1071,11 @@
             .catch(error => {
                 statuses.forEach(status => {
                     status.className = 'submission-status error';
-                    status.textContent = '❌ Failed to send report. Please try again later.';
+                    status.innerHTML = '<span class="error-icon">❌</span> Failed to send report. Please try again later.';
                 });
                 buttons.forEach(button => {
                     button.disabled = false;
-                    button.innerHTML = '<span>📤</span> Send to Traefik Labs';
+                    button.textContent = 'Send to Traefik Labs';
                 });
             });
         }
