@@ -100,7 +100,7 @@
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: var(--spacing-3);
+            padding: var(--spacing-3) var(--spacing-3) 0;
         }
 
         .card {
@@ -548,6 +548,23 @@
             color: var(--color-text-subtle);
             display: block;
         }
+
+        .footer {
+            text-align: center;
+            padding: var(--spacing-6) var(--spacing-3);
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-2);
+        }
+
+        .footer a {
+            color: var(--color-text-subtle);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--color-text);
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body data-theme="light">
@@ -733,6 +750,10 @@
             {{end}}
         </div>
         {{end}}
+
+        <footer class="footer">
+            Built by <a href="https://traefik.io/?utm_source=ingress-nginx-analyzer&utm_medium=footer&utm_campaign=migration-report" target="_blank" rel="noopener">Traefik Labs</a> with ❤️
+        </footer>
     </div>
 
     <script>
