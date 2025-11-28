@@ -440,6 +440,10 @@
 
         .tab-button {
             flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-2);
             background: transparent;
             border: none;
             border-bottom: 1px solid var(--color-input-border);
@@ -448,7 +452,6 @@
             font-size: var(--font-size-4);
             font-weight: 600;
             color: var(--color-text-subtle);
-            text-align: center;
             font-family: 'Rubik', sans-serif;
         }
 
@@ -459,6 +462,21 @@
         .tab-button.active {
             color: var(--color-primary);
             border-bottom: 2px solid var(--color-primary);
+        }
+
+        .tab-badge {
+            display: inline-block;
+            background-color: var(--color-03dp);
+            color: var(--color-text-subtle);
+            font-size: var(--font-size-1);
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: var(--radius-2);
+        }
+
+        .tab-button.active .tab-badge {
+            background-color: var(--color-primary);
+            color: var(--color-button-primary-text);
         }
 
         .tab-content {
@@ -672,10 +690,10 @@
         <div class="card card-elevation-1 card-no-padding">
             <div class="tabs">
                 {{if .UnsupportedIngressAnnotations}}
-                <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Annotations</button>
+                <button class="tab-button active" onclick="showTab(event, 'annotations')">📋 Annotations<span class="tab-badge">{{len .UnsupportedIngressAnnotations}}</span></button>
                 {{end}}
                 {{if .UnsupportedIngresses}}
-                <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">⚠️ Ingresses</button>
+                <button class="tab-button {{if not .UnsupportedIngressAnnotations}}active{{end}}" onclick="showTab(event, 'ingresses')">⚠️ Ingresses<span class="tab-badge">{{len .UnsupportedIngresses}}</span></button>
                 {{end}}
             </div>
 
