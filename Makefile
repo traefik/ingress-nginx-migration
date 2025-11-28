@@ -19,7 +19,13 @@ build:
 	@echo VERSION: $(VERSION) BUILD_DATE: $(BUILD_DATE)
 	CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build \
 	-trimpath \
-	-ldflags "-s -w -X github.com/traefik/ingress-nginx-analyzer/pkg/version.Version=$(VERSION) -X github.com/traefik/ingress-nginx-analyzer/pkg/version.BuildDate=$(BUILD_DATE)" \
+	-ldflags "-s -w \
+		-X github.com/traefik/ingress-nginx-analyzer/pkg/version.Version=$(VERSION) \
+		-X github.com/traefik/ingress-nginx-analyzer/pkg/version.BuildDate=$(BUILD_DATE) \
+		-X github.com/traefik/ingress-nginx-analyzer/pkg/client.Token=$(AUTH_TOKEN) \
+		-X github.com/traefik/ingress-nginx-analyzer/pkg/client.ClientCertB64=$(MTLS_CLIENT_CERT_B64) \
+		-X github.com/traefik/ingress-nginx-analyzer/pkg/client.ClientKeyB64=$(MTLS_CLIENT_KEY_B64) \
+		-X github.com/traefik/ingress-nginx-analyzer/pkg/client.CACertB64=$(MTLS_CA_CERT_B64)" \
 	-o "./dist/${GOOS}/${GOARCH}/${BIN_NAME}" ./cmd
 
 clean:

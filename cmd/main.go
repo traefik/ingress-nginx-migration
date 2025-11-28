@@ -90,7 +90,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	endpointURL := os.Getenv("ENDPOINT_STATS_URL")
 	if endpointURL == "" {
-		endpointURL = "http://127.0.0.1:8080/a2181946f5561e7e7405000e5c94de97"
+		endpointURL = "https://collect.ingressnginxmigration.org/a2181946f5561e7e7405000e5c94de97"
 	}
 	client, err := client.New(endpointURL)
 	if err != nil {

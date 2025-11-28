@@ -108,13 +108,14 @@ func (c *Client) SendReport(report analyzer.Report) error {
 		return fmt.Errorf("marshalling report to JSON: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.endpointURL, bytes.NewBuffer(reportBytes)) // FIXME
+	req, err := http.NewRequest(http.MethodPost, c.endpointURL, bytes.NewBuffer(reportBytes))
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+Token)
+	fmt.Println(Token)
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
