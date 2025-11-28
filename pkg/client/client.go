@@ -2,6 +2,9 @@ package client
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -14,12 +17,27 @@ import (
 // Token is the authentication token used for sending reports injected at build time.
 var Token = "dev"
 
+// mTLS certificates injected at build time (base64 encoded).
+var (
+	// ClientCertB64 is the base64-encoded client certificate (PEM format).
+	ClientCertB64 = ""
+	// ClientKeyB64 is the base64-encoded client private key (PEM format).
+	ClientKeyB64 = ""
+	// CACertB64 is the base64-encoded CA certificate (PEM format) for verifying the server.
+	CACertB64 = ""
+)
+
 type Client struct {
 	endpointURL string
 	httpClient  *http.Client
 }
 
-func New(endpointURL string) *Client {
+func New(endpointURL string) (*Client, error) {
+	tlsConfig, err := buildTLSConfig()
+	if err != nil {
+		return nil, fmt.Errorf("building TLS config: %w", err)
+	}
+
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
@@ -28,13 +46,60 @@ func New(endpointURL string) *Client {
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
+			TLSClientConfig: tlsConfig,
 		},
 	}
 
 	return &Client{
 		endpointURL: endpointURL,
 		httpClient:  httpClient,
+	}, nil
+}
+
+func buildTLSConfig() (*tls.Config, error) {
+	// If no certificates are provided, return nil (use default TLS config).
+	if ClientCertB64 == "" || ClientKeyB64 == "" {
+		return nil, nil
 	}
+
+	// Decode client certificate and key from base64.
+	clientCertPEM, err := base64.StdEncoding.DecodeString(ClientCertB64)
+	if err != nil {
+		return nil, fmt.Errorf("decoding client certificate: %w", err)
+	}
+
+	clientKeyPEM, err := base64.StdEncoding.DecodeString(ClientKeyB64)
+	if err != nil {
+		return nil, fmt.Errorf("decoding client key: %w", err)
+	}
+
+	// Load client certificate and key.
+	clientCert, err := tls.X509KeyPair(clientCertPEM, clientKeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("loading client certificate: %w", err)
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{clientCert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	// If CA certificate is provided, use it to verify the server.
+	if CACertB64 != "" {
+		caCertPEM, err := base64.StdEncoding.DecodeString(CACertB64)
+		if err != nil {
+			return nil, fmt.Errorf("decoding CA certificate: %w", err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	return tlsConfig, nil
 }
 
 func (c *Client) SendReport(report analyzer.Report) error {
@@ -43,7 +108,7 @@ func (c *Client) SendReport(report analyzer.Report) error {
 		return fmt.Errorf("marshalling report to JSON: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.endpointURL+"/fixme", bytes.NewBuffer(reportBytes)) // FIXME
+	req, err := http.NewRequest(http.MethodPost, c.endpointURL, bytes.NewBuffer(reportBytes)) // FIXME
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}

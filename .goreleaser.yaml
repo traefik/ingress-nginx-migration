@@ -9,7 +9,13 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -s -w -X github.com/traefik/ingress-nginx-analyzer/pkg/version.Version={{.Version}} -X github.com/traefik/ingress-nginx-analyzer/pkg/version.BuildDate={{.Date}}
+      - -s -w
+      - -X github.com/traefik/ingress-nginx-analyzer/pkg/version.Version={{.Version}}
+      - -X github.com/traefik/ingress-nginx-analyzer/pkg/version.BuildDate={{.Date}}
+      - -X github.com/traefik/ingress-nginx-analyzer/pkg/client.Token={{.Env.AUTH_TOKEN}}
+      - -X github.com/traefik/ingress-nginx-analyzer/pkg/client.ClientCertB64={{.Env.MTLS_CLIENT_CERT_B64}}
+      - -X github.com/traefik/ingress-nginx-analyzer/pkg/client.ClientKeyB64={{.Env.MTLS_CLIENT_KEY_B64}}
+      - -X github.com/traefik/ingress-nginx-analyzer/pkg/client.CACertB64={{.Env.MTLS_CA_CERT_B64}}
     flags:
       - -trimpath
     goos:

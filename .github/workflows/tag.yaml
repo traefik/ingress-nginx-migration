@@ -22,3 +22,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
+          MTLS_CLIENT_CERT_B64: ${{ secrets.MTLS_CLIENT_CERT_B64 }}
+          MTLS_CLIENT_KEY_B64: ${{ secrets.MTLS_CLIENT_KEY_B64 }}
+          MTLS_CA_CERT_B64: ${{ secrets.MTLS_CA_CERT_B64 }}
