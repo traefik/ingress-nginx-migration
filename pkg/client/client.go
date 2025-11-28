@@ -103,8 +103,28 @@ func buildTLSConfig() (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+// reportPayload is a lightweight version of analyzer.Report for API transmission.
+type reportPayload struct {
+	IngressCount            int `json:"ingressCount"`
+	CompatibleIngressCount  int `json:"compatibleIngressCount"`
+	VanillaIngressCount     int `json:"vanillaIngressCount"`
+	SupportedIngressCount   int `json:"supportedIngressCount"`
+	UnsupportedIngressCount int `json:"unsupportedIngressCount"`
+
+	UnsupportedIngressAnnotations map[string]int `json:"unsupportedIngressAnnotations"`
+}
+
 func (c *Client) SendReport(report analyzer.Report) error {
-	reportBytes, err := json.Marshal(report)
+	payload := reportPayload{
+		IngressCount:                  report.IngressCount,
+		CompatibleIngressCount:        report.CompatibleIngressCount,
+		VanillaIngressCount:           report.VanillaIngressCount,
+		SupportedIngressCount:         report.SupportedIngressCount,
+		UnsupportedIngressCount:       report.UnsupportedIngressCount,
+		UnsupportedIngressAnnotations: report.UnsupportedIngressAnnotations,
+	}
+
+	reportBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshaling report to JSON: %w", err)
 	}
@@ -116,7 +136,6 @@ func (c *Client) SendReport(report analyzer.Report) error {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+Token)
-	fmt.Println(Token)
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
