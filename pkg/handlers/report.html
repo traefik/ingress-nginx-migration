@@ -1014,7 +1014,7 @@
 
             if (element.classList.contains('visible')) {
                 element.classList.remove('visible');
-                toggle.textContent = 'Click to show report data';
+                toggle.textContent = 'View what\'s sent';
             } else {
                 // Populate JSON on first open
                 const codeElement = element.querySelector('code');
@@ -1023,7 +1023,7 @@
                     Prism.highlightElement(codeElement);
                 }
                 element.classList.add('visible');
-                toggle.textContent = 'Click to hide report data';
+                toggle.textContent = 'Hide the report data';
             }
         }
 
@@ -1080,7 +1080,7 @@
             .catch(error => {
                 statuses.forEach(status => {
                     status.className = 'submission-status error';
-                    status.innerHTML = '<span class="error-icon">❌</span> Failed to send report. Please try again later.';
+                    status.innerHTML = '<span class="error-icon">❌</span> Failed to send the report. Please try again later.';
                 });
                 buttons.forEach(button => {
                     button.disabled = false;
