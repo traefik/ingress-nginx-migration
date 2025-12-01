@@ -838,7 +838,7 @@
                                                     <p>Share your migration report with Traefik Labs - it only takes one click and helps make Traefik better for everyone.<br/>Your data helps us understand real-world usage patterns and prioritize NGINX provider compatibility improvements.<br/><strong>Privacy notice:</strong> Only anonymized statistics are shared - no sensitive data, names, or configurations. <span class="send-report-toggle" onclick="toggleReportData('reportData1')">View what's sent</span></p>
                                                 </div>
                                                 <div class="send-report-buttons">
-                                                    <button id="submitReport1" class="button button-primary button-large submit-button" onclick="submitReport()">
+                                                    <button id="submitReport1" class="button button-primary button-large submit-button" onclick="submitReport('submitReport1')">
                                                         Share Report
                                                     </button>
                                                     <button class="send-report-dismiss" onclick="dismissBanner('annotations')">Skip</button>
@@ -905,7 +905,7 @@
                                                     <p>Share your migration report with Traefik Labs - it only takes one click and helps make Traefik better for everyone.<br/>Your data helps us understand real-world usage patterns and prioritize NGINX provider compatibility improvements.<br/><strong>Privacy notice:</strong> Only anonymized statistics are shared - no sensitive data, names, or configurations. <span class="send-report-toggle" onclick="toggleReportData('reportData2')">View what's sent</span></p>
                                                 </div>
                                                 <div class="send-report-buttons">
-                                                    <button id="submitReport2" class="button button-primary button-large submit-button" onclick="submitReport()">
+                                                    <button id="submitReport2" class="button button-primary button-large submit-button" onclick="submitReport('submitReport2')">
                                                         Share Report
                                                     </button>
                                                     <button class="send-report-dismiss" onclick="dismissBanner('ingresses')">Skip</button>
@@ -1035,20 +1035,17 @@
             }
         }
 
-        function submitReport() {
-            // Find all submit buttons and disable them
-            const buttons = document.querySelectorAll('.submit-button');
-            const statuses = document.querySelectorAll('.submission-status');
+        function submitReport(buttonId) {
+            // Find the specific button and status for this tab
+            const button = document.getElementById(buttonId);
+            const statusId = buttonId.replace('submitReport', 'submissionStatus');
+            const status = document.getElementById(statusId);
 
-            buttons.forEach(button => {
-                button.disabled = true;
-                button.textContent = 'Sending...';
-            });
+            button.disabled = true;
+            button.textContent = 'Sending...';
 
-            statuses.forEach(status => {
-                status.className = 'submission-status loading';
-                status.textContent = 'Sending report to Traefik Labs...';
-            });
+            status.className = 'submission-status loading';
+            status.textContent = 'Sending report to Traefik Labs...';
 
             // Make the request
             fetch('/send-report', {
@@ -1059,13 +1056,9 @@
             })
             .then(response => {
                 if (response.ok) {
-                    statuses.forEach(status => {
-                        status.className = 'submission-status success';
-                        status.textContent = '✅ Thank you! Your report has been sent successfully.';
-                    });
-                    buttons.forEach(button => {
-                        button.textContent = 'Sent';
-                    });
+                    status.className = 'submission-status success';
+                    status.textContent = '✅ Thank you! Your report has been sent successfully.';
+                    button.textContent = 'Sent';
 
                     // Dismiss both banners after successful submission
                     setTimeout(() => {
@@ -1078,14 +1071,10 @@
                 }
             })
             .catch(error => {
-                statuses.forEach(status => {
-                    status.className = 'submission-status error';
-                    status.innerHTML = '<span class="error-icon">❌</span> Failed to send the report. Please try again later.';
-                });
-                buttons.forEach(button => {
-                    button.disabled = false;
-                    button.textContent = 'Share Report';
-                });
+                status.className = 'submission-status error';
+                status.innerHTML = '<span class="error-icon">❌</span> Failed to send the report. Please try again later.';
+                button.disabled = false;
+                button.textContent = 'Share Report';
             });
         }
     </script>
