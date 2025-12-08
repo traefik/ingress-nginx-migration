@@ -2,6 +2,8 @@
 
 The Ingress NGINX Migration is a tool that analyzes Kubernetes NGINX Ingress resources to help with migration planning to Traefik.
 
+<img width="1185" height="816" alt="screenshot black" src="https://github.com/user-attachments/assets/e2d62f62-4dee-49ab-9012-5decc1bda0f0" />
+
 ## Features
 
 The Ingress NGINX Migration tool creates and serves an interactive HTML report,
