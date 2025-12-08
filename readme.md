@@ -1,4 +1,3 @@
-
 # Ingress NGINX Migration
 
 <img width="1185" height="816" alt="screenshot black" src="https://github.com/user-attachments/assets/e2d62f62-4dee-49ab-9012-5decc1bda0f0" />
