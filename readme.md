@@ -1,8 +1,9 @@
+
 # Ingress NGINX Migration
 
-The Ingress NGINX Migration is a tool that analyzes Kubernetes NGINX Ingress resources to help with migration planning to Traefik.
-
 <img width="1185" height="816" alt="screenshot black" src="https://github.com/user-attachments/assets/e2d62f62-4dee-49ab-9012-5decc1bda0f0" />
+
+The Ingress NGINX Migration is a tool that analyzes Kubernetes NGINX Ingress resources to help with migration planning to Traefik.
 
 ## Features
 
@@ -19,7 +20,7 @@ and to do so it:
   - Unsupported annotations and their frequency
 - Provides flexible ingress filtering by controller class, ingress class name, and namespace
 
-### Supported NGINX Annotations
+## Supported NGINX Annotations
 
 The Ingress NGINX Migration checks for compatibility with common Ingress NGINX Controller annotations including:
 - Authentication (`auth-type`, `auth-secret`, `auth-realm`, etc.)
@@ -28,6 +29,98 @@ The Ingress NGINX Migration checks for compatibility with common Ingress NGINX C
 - Backend configuration (`service-upstream`, `backend-protocol`, `proxy-ssl-*`)
 - CORS (`enable-cors`, `cors-allow-*`)
 - And more...
+
+For a complete list of supported annotations and their Traefik equivalents, see the [Ingress NGINX Annotations table](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress-nginx/#annotations-support) in the Traefik documentation.
+
+## Installation
+
+### Quick Install (Recommended)
+
+Install the latest version using the install script:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/traefik/ingress-nginx-migration/main/scripts/install.sh | bash
+```
+
+Install a specific version:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/traefik/ingress-nginx-migration/main/scripts/install.sh | TAG=v0.0.1 bash
+```
+
+Install without sudo (installs to `~/bin`):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/traefik/ingress-nginx-migration/main/scripts/install.sh | bash -s -- --no-sudo
+```
+
+### Manual Download
+
+Download the appropriate binary for your platform from the [releases page](https://github.com/traefik/ingress-nginx-migration/releases).
+
+## Usage
+
+```console
+NAME:
+   ingress-nginx-migration - Analyze NGINX Ingresses to build a migration report to Traefik
+
+USAGE:
+   ingress-nginx-migration [global options] [command [command options]]
+
+COMMANDS:
+   version  Shows the current version
+   help, h  Shows a list of commands or help for one command
+
+GLOBAL OPTIONS:
+   --addr string                                  Defines the address to listen on for serving the migration report. (default: ":8080") [$ADDR]
+   --kubeconfig string                            Defines the kubeconfig file to use to connect to the Kubernetes cluster. [$KUBECONFIG]
+   --namespaces string [ --namespaces string ]    Defines the namespaces to analyze. When empty, all namespaces are analyzed. [$NAMESPACES]
+   --ingress-class string                         Defines the name of the ingress class this controller satisfies. [$INGRESS_CLASS]
+   --controller-class string                      Defines the Ingress Controller class to analyze. When empty, 'k8s.io/ingress-nginx' is used. [$CONTROLLER_CLASS]
+   --watch-ingress-without-class                  Defines if Ingress Controller should also watch for Ingresses without an IngressClass or the annotation specified. [$WATCH_INGRESS_WITHOUT_CLASS]
+   --ingress-class-by-name                        Defines if Ingress Controller should watch for Ingress Class by Name together with Controller Class. [$INGRESS_CLASS_BY_NAME]
+   --help, -h                                     Show help
+```
+
+> [!TIP]
+> **Quick Start:** Run the tool with your kubeconfig:
+> ```bash
+> ingress-nginx-migration --kubeconfig ~/.kube/config
+> ```
+> Or using environment variables:
+> ```bash
+> KUBECONFIG=~/.kube/config ingress-nginx-migration
+> ```
+
+### Required Permissions
+
+The Ingress NGINX Migration requires specific read-only permissions to analyze your cluster's Ingress resources.
+The tool is principally designed to be run externally by SREs and system administrators who have access to a Kubernetes cluster via kubeconfig.
+But the same requirement would apply for an In-Cluster pod approach.
+
+Your kubeconfig user or service account must have the following permissions:
+
+| API Group              | Resources        | Verbs                  | Scope             |
+|------------------------|------------------|------------------------|-------------------|
+| `networking.k8s.io/v1` | `ingressclasses` | `list`, `get`, `watch` | Cluster-wide      |
+| `networking.k8s.io/v1` | `ingresses`      | `list`, `get`, `watch` | Namespace-scoped* |
+
+> [!NOTE]
+> **Namespace Scope:**
+> The tool supports the `--namespaces` flag.
+> If specific namespaces are provided, permissions are only required for those namespaces.
+> If no namespaces are specified, the tool will attempt to analyze all namespaces, and requiring permission across all namespaces for Ingresses.
+
+### Why These Permissions?
+
+The tool uses Kubernetes client-go informers to efficiently cache and monitor Ingress and IngressClass resources.
+
+Informers require `list`, `get`, and `watch` permissions to:
+- **list**: Retrieve all existing resources for initial analysis
+- **get**: Fetch individual resources when needed
+- **watch**: Receive updates when resources change (for report refresh functionality)
+
+All operations are read-only - the tool never modifies any cluster resources.
 
 ## Send Report Feature
 
@@ -66,100 +159,6 @@ When you choose to share your report, only the following anonymized data is sent
 1. Open the migration report in your browser
 2. Click the "Share Report" button in the report interface
 3. Optionally view the exact data to be sent before confirming
-
-
-## Usage
-
-```console
-NAME:
-   ingress-nginx-migration - Analyze NGINX Ingresses to build a migration report to Traefik
-
-USAGE:
-   ingress-nginx-migration [global options] [command [command options]]
-
-COMMANDS:
-   version  Shows the current version
-   help, h  Shows a list of commands or help for one command
-
-GLOBAL OPTIONS:
-   --addr string                                  Defines the address to listen on for serving the migration report. (default: ":8080") [$ADDR]
-   --kubeconfig string                            Defines the kubeconfig file to use to connect to the Kubernetes cluster. [$KUBECONFIG]
-   --namespaces string [ --namespaces string ]    Defines the namespaces to analyze. When empty, all namespaces are analyzed. [$NAMESPACES]
-   --ingress-class string                         Defines the name of the ingress class this controller satisfies. [$INGRESS_CLASS]
-   --controller-class string                      Defines the Ingress Controller class to analyze. When empty, 'k8s.io/ingress-nginx' is used. [$CONTROLLER_CLASS]
-   --watch-ingress-without-class                  Defines if Ingress Controller should also watch for Ingresses without an IngressClass or the annotation specified. [$WATCH_INGRESS_WITHOUT_CLASS]
-   --ingress-class-by-name                        Defines if Ingress Controller should watch for Ingress Class by Name together with Controller Class. [$INGRESS_CLASS_BY_NAME]
-   --help, -h                                     Show help
-```
-
-### Required Permissions
-
-The Ingress NGINX Migration requires specific read-only permissions to analyze your cluster's Ingress resources.
-The tool is principally designed to be run externally by SREs and system administrators who have access to a Kubernetes cluster via kubeconfig.
-But the same requirement would apply for an In-Cluster pod approach.
-
-Your kubeconfig user or service account must have the following permissions:
-
-| API Group              | Resources        | Verbs                  | Scope             |
-|------------------------|------------------|------------------------|-------------------|
-| `networking.k8s.io/v1` | `ingressclasses` | `list`, `get`, `watch` | Cluster-wide      |
-| `networking.k8s.io/v1` | `ingresses`      | `list`, `get`, `watch` | Namespace-scoped* |
-
-**Namespace Scope:** The tool supports the `--namespaces` flag.
-If specific namespaces are provided, permissions are only required for those namespaces.
-If no namespaces are specified, the tool will attempt to analyze all namespaces,
-and requiring permission across all namespaces for Ingresses.
-
-### Why These Permissions?
-
-The tool uses Kubernetes client-go informers to efficiently cache and monitor Ingress and IngressClass resources.
-
-Informers require `list`, `get`, and `watch` permissions to:
-- **list**: Retrieve all existing resources for initial analysis
-- **get**: Fetch individual resources when needed
-- **watch**: Receive updates when resources change (for report refresh functionality)
-
-All operations are read-only - the tool never modifies any cluster resources.
-
-## Installation
-
-### Quick Install (Recommended)
-
-Install the latest version using the install script:
-
-```bash
-curl -sSL https://raw.githubusercontent.com/traefik/ingress-nginx-migration/main/scripts/install.sh | bash
-```
-
-Install a specific version:
-
-```bash
-curl -sSL https://raw.githubusercontent.com/traefik/ingress-nginx-migration/main/scripts/install.sh | TAG=v0.0.1 bash
-```
-
-Install without sudo (installs to `~/bin`):
-
-```bash
-curl -sSL https://raw.githubusercontent.com/traefik/ingress-nginx-migration/main/scripts/install.sh | bash -s -- --no-sudo
-```
-
-### Manual Download
-
-Download the appropriate binary for your platform from the [releases page](https://github.com/traefik/ingress-nginx-migration/releases).
-
-## Running
-
-Run:
-
-```bash
-KUBECONFIG=~/.kube/config ingress-nginx-migration
-```
-
-Run with a kubeconfig file:
-
-```bash
-ingress-nginx-migration --kubeconfig ~/.kube/config
-```
 
 ## Utility endpoints exposed by the Ingress NGINX Migration tool
 
