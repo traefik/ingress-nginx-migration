@@ -134,7 +134,7 @@ The tool only sends aggregated statistics and counts - never actual ingress conf
 
 ### Data Transmitted
 
-When you choose to share your report, only the following anonymized data is sent:
+When you choose to share your report, the following anonymized data is sent:
 
 ```json
 {
