@@ -18,6 +18,7 @@ import (
 	"github.com/traefik/ingress-nginx-migration/pkg/logger"
 	"github.com/urfave/cli/v3"
 	"k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
