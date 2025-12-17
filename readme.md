@@ -35,6 +35,9 @@ The Ingress NGINX Migration tool includes an optional feature to share anonymize
 This helps the Traefik team understand real-world NGINX Ingress usage patterns and prioritize compatibility improvements for the migration process.
 The data is transmitted securely over HTTPS to Traefik Labs.
 
+**Note:** The share report functionality is only available when the analysis detects unsupported ingresses or annotations.
+If all your ingresses are fully compatible with Traefik, there won't be meaningful migration data to share, so the "Share Report" option will not appear in the interface.
+
 ### Privacy and Data Protection
 
 **Important: No sensitive data is transmitted.**
@@ -64,9 +67,11 @@ When you choose to share your report, only the following anonymized data is sent
 
 **Via Web Interface:**
 1. Open the migration report in your browser
-2. Click the "Share Report" button in the report interface
+2. If unsupported ingresses or annotations are detected, click the "Share Report" button that appears in the report interface
 3. Optionally view the exact data to be sent before confirming
 
+**Note:** The "Share Report" button only appears when there are compatibility issues to report.
+If your analysis shows all ingresses are compatible, no sharing option will be displayed.
 
 ## Usage
 
