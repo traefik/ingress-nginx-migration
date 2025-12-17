@@ -67,7 +67,7 @@ When you choose to share your report, only the following anonymized data is sent
 
 **Via Web Interface:**
 1. Open the migration report in your browser
-2. If unsupported ingresses or annotations are detected, click the "Share Report" button that appears in the report interface
+2. Click the "Share Report" button that appears in the report interface (If unsupported ingresses or annotations are detected)
 3. Optionally view the exact data to be sent before confirming
 
 **Note:** The "Share Report" button only appears when there are compatibility issues to report.
