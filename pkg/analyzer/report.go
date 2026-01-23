@@ -54,7 +54,7 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/ssl-passthrough":         {},
 	"nginx.ingress.kubernetes.io/ssl-redirect":            {},
 	"nginx.ingress.kubernetes.io/temporal-redirect":       {},
-	"nginx.ingress.kubernetes.io/temporal-redirect-code":v {},
+	"nginx.ingress.kubernetes.io/temporal-redirect-code":  {},
 	"nginx.ingress.kubernetes.io/use-regex":               {},
 }
 
