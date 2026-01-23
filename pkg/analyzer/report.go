@@ -36,6 +36,8 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/cors-max-age":            {},
 	"nginx.ingress.kubernetes.io/enable-cors":             {},
 	"nginx.ingress.kubernetes.io/force-ssl-redirect":      {},
+	"nginx.ingress.kubernetes.io/permanent-redirect":      {},
+	"nginx.ingress.kubernetes.io/permanent-redirect-code": {},
 	"nginx.ingress.kubernetes.io/proxy-ssl-name":          {},
 	"nginx.ingress.kubernetes.io/proxy-ssl-secret":        {},
 	"nginx.ingress.kubernetes.io/proxy-ssl-server-name":   {},
@@ -43,6 +45,7 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/rewrite-target":          {},
 	"nginx.ingress.kubernetes.io/service-upstream":        {},
 	"nginx.ingress.kubernetes.io/session-cookie-domain":   {},
+	"nginx.ingress.kubernetes.io/session-cookie-expires":  {},
 	"nginx.ingress.kubernetes.io/session-cookie-max-age":  {},
 	"nginx.ingress.kubernetes.io/session-cookie-name":     {},
 	"nginx.ingress.kubernetes.io/session-cookie-path":     {},
@@ -50,6 +53,8 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/session-cookie-secure":   {},
 	"nginx.ingress.kubernetes.io/ssl-passthrough":         {},
 	"nginx.ingress.kubernetes.io/ssl-redirect":            {},
+	"nginx.ingress.kubernetes.io/temporal-redirect":       {},
+	"nginx.ingress.kubernetes.io/temporal-redirect-code":v {},
 	"nginx.ingress.kubernetes.io/use-regex":               {},
 }
 
