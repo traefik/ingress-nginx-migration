@@ -56,6 +56,13 @@ curl -sSL https://raw.githubusercontent.com/traefik/ingress-nginx-migration/main
 ### Manual Download
 
 Download the appropriate binary for your platform from the [releases page](https://github.com/traefik/ingress-nginx-migration/releases).
+**Via Web Interface:**
+1. Open the migration report in your browser
+2. Click the "Share Report" button that appears in the report interface (If unsupported ingresses or annotations are detected)
+3. Optionally view the exact data to be sent before confirming
+
+**Note:** The "Share Report" button only appears when there are compatibility issues to report.
+If your analysis shows all ingresses are compatible, no sharing option will be displayed.
 
 ## Usage
 
