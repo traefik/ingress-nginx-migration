@@ -22,12 +22,18 @@ and to do so it:
 ## Supported NGINX Annotations
 
 The Ingress NGINX Migration checks for compatibility with common Ingress NGINX Controller annotations including:
-- Authentication (`auth-type`, `auth-secret`, `auth-realm`, etc.)
+- Authentication (`auth-type`, `auth-secret`, `auth-realm`, `auth-url`, `auth-signin`, etc.)
+- Client TLS authentication (`auth-tls-secret`, `auth-tls-verify-client`)
 - SSL/TLS (`force-ssl-redirect`, `ssl-redirect`, `ssl-passthrough`)
+- Path rewriting (`use-regex`, `rewrite-target`, `app-root`)
+- Redirects (`permanent-redirect`, `temporal-redirect`, `from-to-www-redirect`, etc.)
 - Session affinity (`affinity`, `session-cookie-*`)
 - Backend configuration (`service-upstream`, `backend-protocol`, `proxy-ssl-*`)
+- Proxy timeout (`proxy-connect-timeout`)
 - CORS (`enable-cors`, `cors-allow-*`)
-- And more...
+- IP allowlisting (`whitelist-source-range`, `allowlist-source-range`)
+- Custom headers (`custom-headers`, `upstream-vhost`)
+- Buffering (`proxy-request-buffering`, `proxy-body-size`, `proxy-buffering`, etc.)
 
 For a complete list of supported annotations and their Traefik equivalents, see the [Ingress NGINX Annotations table](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress-nginx/#annotations-support) in the Traefik documentation.
 

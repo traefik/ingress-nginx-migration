@@ -20,16 +20,33 @@ const (
 
 // Supported annotations contains the list of supported NGINX ingress controller annotations.
 var supportedAnnotations = map[string]struct{}{
+	// Authentication (basic/digest).
 	"nginx.ingress.kubernetes.io/auth-type":               {},
 	"nginx.ingress.kubernetes.io/auth-secret":             {},
 	"nginx.ingress.kubernetes.io/auth-realm":              {},
 	"nginx.ingress.kubernetes.io/auth-secret-type":        {},
+	// Forward authentication.
 	"nginx.ingress.kubernetes.io/auth-url":                {},
 	"nginx.ingress.kubernetes.io/auth-response-headers":   {},
+	"nginx.ingress.kubernetes.io/auth-signin":             {},
+	// Client TLS authentication.
+	"nginx.ingress.kubernetes.io/auth-tls-secret":         {},
+	"nginx.ingress.kubernetes.io/auth-tls-verify-client":  {},
+	// SSL/TLS.
 	"nginx.ingress.kubernetes.io/force-ssl-redirect":      {},
 	"nginx.ingress.kubernetes.io/ssl-redirect":            {},
 	"nginx.ingress.kubernetes.io/ssl-passthrough":         {},
+	// Path matching & rewriting.
 	"nginx.ingress.kubernetes.io/use-regex":               {},
+	"nginx.ingress.kubernetes.io/rewrite-target":          {},
+	"nginx.ingress.kubernetes.io/app-root":                {},
+	// Redirects.
+	"nginx.ingress.kubernetes.io/permanent-redirect":      {},
+	"nginx.ingress.kubernetes.io/permanent-redirect-code": {},
+	"nginx.ingress.kubernetes.io/temporal-redirect":       {},
+	"nginx.ingress.kubernetes.io/temporal-redirect-code":  {},
+	"nginx.ingress.kubernetes.io/from-to-www-redirect":    {},
+	// Session affinity.
 	"nginx.ingress.kubernetes.io/affinity":                {},
 	"nginx.ingress.kubernetes.io/session-cookie-name":     {},
 	"nginx.ingress.kubernetes.io/session-cookie-secure":   {},
@@ -37,12 +54,19 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/session-cookie-domain":   {},
 	"nginx.ingress.kubernetes.io/session-cookie-samesite": {},
 	"nginx.ingress.kubernetes.io/session-cookie-max-age":  {},
+	"nginx.ingress.kubernetes.io/session-cookie-expires":  {},
+	// Service upstream.
 	"nginx.ingress.kubernetes.io/service-upstream":        {},
+	// Backend protocol.
 	"nginx.ingress.kubernetes.io/backend-protocol":        {},
+	// Proxy SSL.
 	"nginx.ingress.kubernetes.io/proxy-ssl-secret":        {},
 	"nginx.ingress.kubernetes.io/proxy-ssl-verify":        {},
 	"nginx.ingress.kubernetes.io/proxy-ssl-name":          {},
 	"nginx.ingress.kubernetes.io/proxy-ssl-server-name":   {},
+	// Proxy timeout.
+	"nginx.ingress.kubernetes.io/proxy-connect-timeout":   {},
+	// CORS.
 	"nginx.ingress.kubernetes.io/enable-cors":             {},
 	"nginx.ingress.kubernetes.io/cors-allow-credentials":  {},
 	"nginx.ingress.kubernetes.io/cors-expose-headers":     {},
@@ -50,6 +74,20 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/cors-allow-methods":      {},
 	"nginx.ingress.kubernetes.io/cors-allow-origin":       {},
 	"nginx.ingress.kubernetes.io/cors-max-age":            {},
+	// IP allowlist.
+	"nginx.ingress.kubernetes.io/whitelist-source-range":  {},
+	"nginx.ingress.kubernetes.io/allowlist-source-range":  {},
+	// Custom headers.
+	"nginx.ingress.kubernetes.io/custom-headers":          {},
+	"nginx.ingress.kubernetes.io/upstream-vhost":          {},
+	// Buffering.
+	"nginx.ingress.kubernetes.io/proxy-request-buffering":  {},
+	"nginx.ingress.kubernetes.io/client-body-buffer-size":  {},
+	"nginx.ingress.kubernetes.io/proxy-body-size":          {},
+	"nginx.ingress.kubernetes.io/proxy-buffering":          {},
+	"nginx.ingress.kubernetes.io/proxy-buffer-size":        {},
+	"nginx.ingress.kubernetes.io/proxy-buffers-number":     {},
+	"nginx.ingress.kubernetes.io/proxy-max-temp-file-size": {},
 }
 
 // IngressReport contains the analysis report for a single Ingress.
