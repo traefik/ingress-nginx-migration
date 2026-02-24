@@ -1,6 +1,8 @@
 package e2e
 
 import (
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -33,6 +35,12 @@ func sanitizeName(name string) string {
 	}
 	s = strings.TrimRight(s, "-")
 	return s
+}
+
+// htpasswdSHA returns an htpasswd entry using the {SHA} scheme.
+func htpasswdSHA(username, password string) string {
+	h := sha1.Sum([]byte(password))
+	return fmt.Sprintf("%s:{SHA}%s", username, base64.StdEncoding.EncodeToString(h[:]))
 }
 
 func parseWhoamiHeaders(body string) map[string]string {

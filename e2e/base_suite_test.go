@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"text/template"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/k3s"
@@ -31,8 +33,10 @@ var (
 	testNamespace string
 	fixturesDir   string
 
-	sharedTraefik *Cluster
-	sharedNginx   *Cluster
+	clusterOnce    sync.Once
+	clusterInitErr error
+	sharedTraefik  *Cluster
+	sharedNginx    *Cluster
 )
 
 func init() {
@@ -50,6 +54,10 @@ func init() {
 
 func TestMain(m *testing.M) {
 	flag.Parse()
+	os.Exit(m.Run())
+}
+
+func initClusters() error {
 	ctx := context.Background()
 
 	fmt.Printf("Creating k3s clusters with image: %s\n", k3sImage)
@@ -57,14 +65,14 @@ func TestMain(m *testing.M) {
 	// Render the traefik helm chart, optionally configured with a custom image.
 	traefikManifestPath, err := renderTraefikHelmChart(traefikImage)
 	if err != nil {
-		panic(fmt.Sprintf("failed to render traefik helm chart: %v", err))
+		return fmt.Errorf("failed to render traefik helm chart: %v", err)
 	}
 	defer os.Remove(traefikManifestPath)
 
 	// Create both k3s containers.
 	traefikContainer, err := createCluster(ctx, traefikManifestPath)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create traefik cluster: %v", err))
+		return fmt.Errorf("failed to create traefik cluster: %v", err)
 	}
 
 	// When a custom Traefik image is provided, load it into the k3s cluster
@@ -72,7 +80,7 @@ func TestMain(m *testing.M) {
 	if traefikImage != "" {
 		fmt.Printf("Loading image %s into traefik cluster...\n", traefikImage)
 		if err := traefikContainer.LoadImages(ctx, traefikImage); err != nil {
-			panic(fmt.Sprintf("failed to load traefik image: %v", err))
+			return fmt.Errorf("failed to load traefik image: %v", err)
 		}
 	} else {
 		fmt.Println("No TRAEFIK_IMAGE set, using chart default image")
@@ -80,69 +88,56 @@ func TestMain(m *testing.M) {
 
 	nginxContainer, err := createCluster(ctx, filepath.Join(fixturesDir, "nginx-helmchart.yaml"))
 	if err != nil {
-		panic(fmt.Sprintf("failed to create nginx cluster: %v", err))
+		return fmt.Errorf("failed to create nginx cluster: %v", err)
 	}
 
 	// Build Cluster structs.
 	sharedTraefik, err = newCluster("traefik", traefikContainer, "traefik", "app.kubernetes.io/name=traefik")
 	if err != nil {
-		panic(fmt.Sprintf("failed to init traefik cluster: %v", err))
+		return fmt.Errorf("failed to init traefik cluster: %v", err)
 	}
 
 	sharedNginx, err = newCluster("nginx", nginxContainer, "ingress-nginx", "app.kubernetes.io/name=ingress-nginx")
 	if err != nil {
-		panic(fmt.Sprintf("failed to init nginx cluster: %v", err))
+		return fmt.Errorf("failed to init nginx cluster: %v", err)
 	}
 
 	// Deploy nginx IngressClass to the traefik cluster so the kubernetesingressnginx
 	// provider recognizes ingresses with ingressClassName: nginx.
 	if err := sharedTraefik.ApplyFixture("nginx-ingressclass.yaml"); err != nil {
-		panic(fmt.Sprintf("failed to deploy nginx ingressclass to traefik cluster: %v", err))
+		return fmt.Errorf("failed to deploy nginx ingressclass to traefik cluster: %v", err)
 	}
 
 	fmt.Println("Waiting for ingress controllers to be ready...")
 
 	// Wait for controllers to be ready.
 	if err := waitForDeployment(sharedTraefik, "traefik", "traefik"); err != nil {
-		panic(fmt.Sprintf("traefik controller not ready: %v", err))
+		return fmt.Errorf("traefik controller not ready: %v", err)
 	}
 	if err := waitForDeployment(sharedNginx, "ingress-nginx", "ingress-nginx-controller"); err != nil {
-		panic(fmt.Sprintf("nginx controller not ready: %v", err))
+		return fmt.Errorf("nginx controller not ready: %v", err)
 	}
 
 	fmt.Println("Deploying shared resources...")
 
 	// Deploy whoami backend to both.
 	if err := sharedTraefik.DeploySharedResources(); err != nil {
-		panic(fmt.Sprintf("failed to deploy shared resources to traefik cluster: %v", err))
+		return fmt.Errorf("failed to deploy shared resources to traefik cluster: %v", err)
 	}
 	if err := sharedNginx.DeploySharedResources(); err != nil {
-		panic(fmt.Sprintf("failed to deploy shared resources to nginx cluster: %v", err))
+		return fmt.Errorf("failed to deploy shared resources to nginx cluster: %v", err)
 	}
 
 	// Wait for whoami pods to be ready.
 	if err := waitForDeployment(sharedTraefik, testNamespace, "snippet-test-backend"); err != nil {
-		panic(fmt.Sprintf("whoami not ready in traefik cluster: %v", err))
+		return fmt.Errorf("whoami not ready in traefik cluster: %v", err)
 	}
 	if err := waitForDeployment(sharedNginx, testNamespace, "snippet-test-backend"); err != nil {
-		panic(fmt.Sprintf("whoami not ready in nginx cluster: %v", err))
+		return fmt.Errorf("whoami not ready in nginx cluster: %v", err)
 	}
 
-	fmt.Println("Running tests...")
-	code := m.Run()
-
-	// Cleanup.
-	sharedTraefik.CleanupSharedResources()
-	sharedNginx.CleanupSharedResources()
-
-	if err := traefikContainer.Terminate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to terminate traefik container: %v\n", err)
-	}
-	if err := nginxContainer.Terminate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to terminate nginx container: %v\n", err)
-	}
-
-	os.Exit(code)
+	fmt.Println("Clusters ready.")
+	return nil
 }
 
 func createCluster(ctx context.Context, manifestPath string) (*k3s.K3sContainer, error) {
@@ -340,6 +335,11 @@ type BaseSuite struct {
 }
 
 func (s *BaseSuite) SetupSuite() {
+	clusterOnce.Do(func() {
+		clusterInitErr = initClusters()
+	})
+	require.NoError(s.T(), clusterInitErr, "cluster initialization failed")
+
 	s.traefik = sharedTraefik
 	s.nginx = sharedNginx
 }
