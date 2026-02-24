@@ -93,7 +93,10 @@ func (c *Cluster) WaitForIngressReady(t *testing.T, host string, maxRetries int,
 	t.Helper()
 
 	url := fmt.Sprintf("http://%s:%s/", c.Host, c.Port)
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 
 	for i := 0; i < maxRetries; i++ {
 		req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -126,7 +129,8 @@ func (c *Cluster) MakeRequest(t *testing.T, host, method, path string, headers m
 	url := fmt.Sprintf("http://%s:%s%s", c.Host, c.Port, path)
 
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
 	var lastErr error

@@ -4,8 +4,12 @@ metadata:
   name: {{ .Name }}
   annotations:
 {{- range $key, $value := .Annotations }}
+{{- if multiline $value }}
     {{ $key }}: |
 {{ $value | indent 6 }}
+{{- else }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
 {{- end }}
 spec:
   ingressClassName: nginx

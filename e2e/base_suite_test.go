@@ -13,7 +13,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/k3s"
@@ -302,6 +301,12 @@ func renderIngressManifest(name, host string, annotations map[string]string) (st
 			}
 			return strings.Join(lines, "\n")
 		},
+		"multiline": func(s string) bool {
+			return strings.Contains(s, "\n")
+		},
+		"quote": func(s string) string {
+			return fmt.Sprintf("%q", s)
+		},
 	}).Parse(string(tmplContent))
 	if err != nil {
 		return "", fmt.Errorf("failed to parse ingress template: %w", err)
@@ -337,37 +342,4 @@ type BaseSuite struct {
 func (s *BaseSuite) SetupSuite() {
 	s.traefik = sharedTraefik
 	s.nginx = sharedNginx
-}
-
-// makeComparisonRequests deploys an ingress to both clusters, makes requests, and returns both responses.
-func (s *BaseSuite) makeComparisonRequests(ingressName string, annotations map[string]string, method, path string, reqHeaders map[string]string) (traefikResp, nginxResp *Response) {
-	s.T().Helper()
-
-	traefikHost := ingressName + ".traefik.local"
-	nginxHost := ingressName + ".nginx.local"
-
-	// Deploy ingress to both clusters.
-	err := s.traefik.DeployIngress(ingressName, traefikHost, annotations)
-	require.NoError(s.T(), err, "deploy ingress to traefik cluster")
-
-	err = s.nginx.DeployIngress(ingressName, nginxHost, annotations)
-	require.NoError(s.T(), err, "deploy ingress to nginx cluster")
-
-	s.T().Cleanup(func() {
-		_ = s.traefik.DeleteIngress(ingressName)
-		_ = s.nginx.DeleteIngress(ingressName)
-	})
-
-	// Wait for ingress to be configured in both clusters.
-	s.traefik.WaitForIngressReady(s.T(), traefikHost, 20, 1*time.Second)
-	s.nginx.WaitForIngressReady(s.T(), nginxHost, 20, 1*time.Second)
-
-	// Make actual test requests (retries only on connection errors).
-	traefikResp = s.traefik.MakeRequest(s.T(), traefikHost, method, path, reqHeaders, 3, 1*time.Second)
-	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
-
-	nginxResp = s.nginx.MakeRequest(s.T(), nginxHost, method, path, reqHeaders, 3, 1*time.Second)
-	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
-
-	return traefikResp, nginxResp
 }
