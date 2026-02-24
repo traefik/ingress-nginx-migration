@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Name }}
+  annotations:
+{{- range $key, $value := .Annotations }}
+    {{ $key }}: |
+{{ $value | indent 6 }}
+{{- end }}
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: {{ .Host }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: snippet-test-backend
+            port:
+              number: 80

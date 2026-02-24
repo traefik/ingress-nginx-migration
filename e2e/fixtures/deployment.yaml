@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snippet-test-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snippet-test-backend
+  template:
+    metadata:
+      labels:
+        app: snippet-test-backend
+    spec:
+      containers:
+      - name: whoami
+        image: traefik/whoami:latest
+        ports:
+        - containerPort: 80

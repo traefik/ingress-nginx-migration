@@ -1,5 +1,6 @@
 .PHONY: clean lint test build \
-		build-linux-arm64 build-linux-amd64 multi-arch-image-%
+		build-linux-arm64 build-linux-amd64 multi-arch-image-% \
+		e2e-test
 
 export GO111MODULE=on
 
@@ -52,3 +53,10 @@ build-linux-amd64:
 ## Build Multi archs Docker image
 multi-arch-image-%: build-linux-amd64 build-linux-arm64
 	docker buildx build $(DOCKER_BUILDX_ARGS) -t gcr.io/traefiklabs/$(BIN_NAME):$* --platform=$(DOCKER_BUILD_PLATFORMS) -f Dockerfile .
+
+## E2E tests (require Docker and kubectl)
+## Usage: make e2e-test [TRAEFIK_IMAGE=traefik/traefik:v3.4.0]
+E2E_DIR := e2e
+
+e2e-test:
+	cd $(E2E_DIR) && TRAEFIK_IMAGE=$(TRAEFIK_IMAGE) go test -v -count=1 -timeout 15m ./...
