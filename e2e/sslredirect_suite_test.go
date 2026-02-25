@@ -12,13 +12,16 @@ import (
 )
 
 const (
-	sslRedirectIngressName   = "ssl-redirect-test"
-	sslNoRedirectIngressName = "ssl-no-redirect-test"
+	sslRedirectIngressName         = "ssl-redirect-test"
+	sslNoRedirectIngressName       = "ssl-no-redirect-test"
+	sslRedirectExplicitIngressName = "ssl-redirect-explicit-test"
 
-	sslRedirectTraefikHost   = sslRedirectIngressName + ".traefik.local"
-	sslRedirectNginxHost     = sslRedirectIngressName + ".nginx.local"
-	sslNoRedirectTraefikHost = sslNoRedirectIngressName + ".traefik.local"
-	sslNoRedirectNginxHost   = sslNoRedirectIngressName + ".nginx.local"
+	sslRedirectTraefikHost         = sslRedirectIngressName + ".traefik.local"
+	sslRedirectNginxHost           = sslRedirectIngressName + ".nginx.local"
+	sslNoRedirectTraefikHost       = sslNoRedirectIngressName + ".traefik.local"
+	sslNoRedirectNginxHost         = sslNoRedirectIngressName + ".nginx.local"
+	sslRedirectExplicitTraefikHost = sslRedirectExplicitIngressName + ".traefik.local"
+	sslRedirectExplicitNginxHost   = sslRedirectExplicitIngressName + ".nginx.local"
 )
 
 type SSLRedirectSuite struct {
@@ -56,10 +59,23 @@ func (s *SSLRedirectSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(sslNoRedirectIngressName, sslNoRedirectNginxHost, noRedirectAnnotations)
 	require.NoError(s.T(), err, "deploy ssl-no-redirect ingress to nginx cluster")
 
+	// Ingress with ssl-redirect explicitly enabled.
+	explicitAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/ssl-redirect": "true",
+	}
+
+	err = s.traefik.DeployIngress(sslRedirectExplicitIngressName, sslRedirectExplicitTraefikHost, explicitAnnotations)
+	require.NoError(s.T(), err, "deploy ssl-redirect-explicit ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(sslRedirectExplicitIngressName, sslRedirectExplicitNginxHost, explicitAnnotations)
+	require.NoError(s.T(), err, "deploy ssl-redirect-explicit ingress to nginx cluster")
+
 	s.traefik.WaitForIngressReady(s.T(), sslRedirectTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), sslRedirectNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), sslNoRedirectTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), sslNoRedirectNginxHost, 20, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), sslRedirectExplicitTraefikHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), sslRedirectExplicitNginxHost, 20, 1*time.Second)
 }
 
 func (s *SSLRedirectSuite) TearDownSuite() {
@@ -67,6 +83,8 @@ func (s *SSLRedirectSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(sslRedirectIngressName)
 	_ = s.traefik.DeleteIngress(sslNoRedirectIngressName)
 	_ = s.nginx.DeleteIngress(sslNoRedirectIngressName)
+	_ = s.traefik.DeleteIngress(sslRedirectExplicitIngressName)
+	_ = s.nginx.DeleteIngress(sslRedirectExplicitIngressName)
 }
 
 // redirectRequest makes the same HTTP request against both clusters using the ssl-redirect enabled ingress.
@@ -151,4 +169,46 @@ func (s *SSLRedirectSuite) TestSSLRedirectPreservesPath() {
 		"traefik Location should preserve path, got: %s", traefikLocation)
 	assert.True(s.T(), strings.HasSuffix(nginxLocation, "/some/path"),
 		"nginx Location should preserve path, got: %s", nginxLocation)
+}
+
+// explicitRedirectRequest makes the same HTTP request against both clusters using the ssl-redirect explicit ingress.
+func (s *SSLRedirectSuite) explicitRedirectRequest(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
+	s.T().Helper()
+
+	traefikResp = s.traefik.MakeRequest(s.T(), sslRedirectExplicitTraefikHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), sslRedirectExplicitNginxHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	return traefikResp, nginxResp
+}
+
+func (s *SSLRedirectSuite) TestSSLRedirectExplicitWithoutTLS() {
+	// ssl-redirect: "true" only triggers when TLS is configured on the Ingress.
+	// Without a TLS section, both controllers should serve normally (no redirect).
+	traefikResp, nginxResp := s.explicitRedirectRequest(http.MethodGet, "/", nil)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 when ssl-redirect is true but no TLS configured")
+
+	assert.Empty(s.T(), traefikResp.ResponseHeaders.Get("Location"),
+		"traefik should not redirect without TLS on the ingress")
+	assert.Empty(s.T(), nginxResp.ResponseHeaders.Get("Location"),
+		"nginx should not redirect without TLS on the ingress")
+}
+
+func (s *SSLRedirectSuite) TestSSLRedirectPreservesQueryString() {
+	traefikResp, nginxResp := s.redirectRequest(http.MethodGet, "/path?key=value", nil)
+
+	traefikLocation := traefikResp.ResponseHeaders.Get("Location")
+	nginxLocation := nginxResp.ResponseHeaders.Get("Location")
+
+	assert.NotEmpty(s.T(), traefikLocation, "traefik Location header should be present")
+	assert.NotEmpty(s.T(), nginxLocation, "nginx Location header should be present")
+
+	assert.True(s.T(), strings.HasSuffix(traefikLocation, "/path?key=value"),
+		"traefik Location should preserve query string, got: %s", traefikLocation)
+	assert.True(s.T(), strings.HasSuffix(nginxLocation, "/path?key=value"),
+		"nginx Location should preserve query string, got: %s", nginxLocation)
 }

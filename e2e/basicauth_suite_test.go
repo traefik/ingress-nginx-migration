@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -17,9 +18,16 @@ const (
 	basicAuthTraefikHost = basicAuthIngressName + ".traefik.local"
 	basicAuthNginxHost   = basicAuthIngressName + ".nginx.local"
 
-	basicAuthUser = "testuser"
-	basicAuthPass = "testpass"
+	basicAuthUser  = "testuser"
+	basicAuthPass  = "testpass"
 	basicAuthRealm = "Test Realm"
+
+	authMapIngressName = "auth-map-test"
+	authMapTraefikHost = authMapIngressName + ".traefik.local"
+	authMapNginxHost   = authMapIngressName + ".nginx.local"
+
+	authMapUser = "mapuser"
+	authMapPass = "mappass"
 )
 
 type BasicAuthSuite struct {
@@ -62,8 +70,41 @@ data:
 	err = s.nginx.DeployIngress(basicAuthIngressName, basicAuthNginxHost, annotations)
 	require.NoError(s.T(), err, "deploy basic-auth ingress to nginx cluster")
 
+	// Create the auth-map secret where keys are usernames, values are password hashes.
+	// The {SHA} hash format is: base64(sha1(password))
+	mapHash := sha1Hash(authMapPass)
+	authMapSecret := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: auth-map-secret
+type: Opaque
+data:
+  %s: %s
+`, authMapUser, base64.StdEncoding.EncodeToString([]byte("{SHA}"+mapHash)))
+
+	err = s.traefik.ApplyManifest(authMapSecret)
+	require.NoError(s.T(), err, "create auth-map secret in traefik cluster")
+
+	err = s.nginx.ApplyManifest(authMapSecret)
+	require.NoError(s.T(), err, "create auth-map secret in nginx cluster")
+
+	authMapAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/auth-type":        "basic",
+		"nginx.ingress.kubernetes.io/auth-secret":      "auth-map-secret",
+		"nginx.ingress.kubernetes.io/auth-secret-type": "auth-map",
+		"nginx.ingress.kubernetes.io/auth-realm":       basicAuthRealm,
+	}
+
+	err = s.traefik.DeployIngress(authMapIngressName, authMapTraefikHost, authMapAnnotations)
+	require.NoError(s.T(), err, "deploy auth-map ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(authMapIngressName, authMapNginxHost, authMapAnnotations)
+	require.NoError(s.T(), err, "deploy auth-map ingress to nginx cluster")
+
 	s.traefik.WaitForIngressReady(s.T(), basicAuthTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), basicAuthNginxHost, 20, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), authMapTraefikHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), authMapNginxHost, 20, 1*time.Second)
 }
 
 func (s *BasicAuthSuite) TearDownSuite() {
@@ -71,6 +112,10 @@ func (s *BasicAuthSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(basicAuthIngressName)
 	_ = s.traefik.Kubectl("delete", "secret", "basic-auth", "-n", s.traefik.TestNamespace, "--ignore-not-found")
 	_ = s.nginx.Kubectl("delete", "secret", "basic-auth", "-n", s.nginx.TestNamespace, "--ignore-not-found")
+	_ = s.traefik.DeleteIngress(authMapIngressName)
+	_ = s.nginx.DeleteIngress(authMapIngressName)
+	_ = s.traefik.Kubectl("delete", "secret", "auth-map-secret", "-n", s.traefik.TestNamespace, "--ignore-not-found")
+	_ = s.nginx.Kubectl("delete", "secret", "auth-map-secret", "-n", s.nginx.TestNamespace, "--ignore-not-found")
 }
 
 func basicAuthHeader(user, pass string) map[string]string {
@@ -129,4 +174,45 @@ func (s *BasicAuthSuite) TestAuthRealm() {
 		traefikResp.ResponseHeaders.Get("WWW-Authenticate"),
 		"WWW-Authenticate header mismatch",
 	)
+}
+
+// sha1Hash returns the base64-encoded SHA-1 hash of the given password.
+func sha1Hash(password string) string {
+	h := sha1.Sum([]byte(password))
+	return base64.StdEncoding.EncodeToString(h[:])
+}
+
+// requestAuthMap makes the same HTTP request against both clusters using the auth-map ingress
+// and returns both responses.
+func (s *BasicAuthSuite) requestAuthMap(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
+	s.T().Helper()
+
+	traefikResp = s.traefik.MakeRequest(s.T(), authMapTraefikHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), authMapNginxHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	return traefikResp, nginxResp
+}
+
+func (s *BasicAuthSuite) TestAuthMapNoCredentials() {
+	traefikResp, nginxResp := s.requestAuthMap(http.MethodGet, "/", nil)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode, "expected 401 without credentials")
+}
+
+func (s *BasicAuthSuite) TestAuthMapCorrectCredentials() {
+	traefikResp, nginxResp := s.requestAuthMap(http.MethodGet, "/", basicAuthHeader(authMapUser, authMapPass))
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with correct credentials")
+}
+
+func (s *BasicAuthSuite) TestAuthMapWrongPassword() {
+	traefikResp, nginxResp := s.requestAuthMap(http.MethodGet, "/", basicAuthHeader(authMapUser, "wrongpass"))
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode, "expected 401 with wrong password")
 }

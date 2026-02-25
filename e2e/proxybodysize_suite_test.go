@@ -20,6 +20,14 @@ const (
 	bodyLimitNginxHost     = bodyLimitIngressName + ".nginx.local"
 	bodyNoLimitTraefikHost = bodyNoLimitIngressName + ".traefik.local"
 	bodyNoLimitNginxHost   = bodyNoLimitIngressName + ".nginx.local"
+
+	bufferingOffIngressName = "buffering-off-test"
+	bufferingOffTraefikHost = bufferingOffIngressName + ".traefik.local"
+	bufferingOffNginxHost   = bufferingOffIngressName + ".nginx.local"
+
+	bodyLimitMBIngressName = "body-limit-mb-test"
+	bodyLimitMBTraefikHost = bodyLimitMBIngressName + ".traefik.local"
+	bodyLimitMBNginxHost   = bodyLimitMBIngressName + ".nginx.local"
 )
 
 type ProxyBodySizeSuite struct {
@@ -55,10 +63,37 @@ func (s *ProxyBodySizeSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(bodyNoLimitIngressName, bodyNoLimitNginxHost, noLimitAnnotations)
 	require.NoError(s.T(), err, "deploy body-no-limit ingress to nginx cluster")
 
+	// Deploy buffering-off ingress to both clusters.
+	bufferingAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/proxy-buffering":         "off",
+		"nginx.ingress.kubernetes.io/proxy-request-buffering": "off",
+	}
+
+	err = s.traefik.DeployIngress(bufferingOffIngressName, bufferingOffTraefikHost, bufferingAnnotations)
+	require.NoError(s.T(), err, "deploy buffering-off ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(bufferingOffIngressName, bufferingOffNginxHost, bufferingAnnotations)
+	require.NoError(s.T(), err, "deploy buffering-off ingress to nginx cluster")
+
+	// Deploy body-limit-mb ingress to both clusters.
+	limitMBAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/proxy-body-size": "1m",
+	}
+
+	err = s.traefik.DeployIngress(bodyLimitMBIngressName, bodyLimitMBTraefikHost, limitMBAnnotations)
+	require.NoError(s.T(), err, "deploy body-limit-mb ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(bodyLimitMBIngressName, bodyLimitMBNginxHost, limitMBAnnotations)
+	require.NoError(s.T(), err, "deploy body-limit-mb ingress to nginx cluster")
+
 	s.traefik.WaitForIngressReady(s.T(), bodyLimitTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), bodyLimitNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), bodyNoLimitTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), bodyNoLimitNginxHost, 20, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), bufferingOffTraefikHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), bufferingOffNginxHost, 20, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), bodyLimitMBTraefikHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), bodyLimitMBNginxHost, 20, 1*time.Second)
 }
 
 func (s *ProxyBodySizeSuite) TearDownSuite() {
@@ -66,6 +101,10 @@ func (s *ProxyBodySizeSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(bodyLimitIngressName)
 	_ = s.traefik.DeleteIngress(bodyNoLimitIngressName)
 	_ = s.nginx.DeleteIngress(bodyNoLimitIngressName)
+	_ = s.traefik.DeleteIngress(bufferingOffIngressName)
+	_ = s.nginx.DeleteIngress(bufferingOffIngressName)
+	_ = s.traefik.DeleteIngress(bodyLimitMBIngressName)
+	_ = s.nginx.DeleteIngress(bodyLimitMBIngressName)
 }
 
 // makeRequestWithBody makes an HTTP request with a body to the given cluster and returns the response.
@@ -88,8 +127,9 @@ func (s *ProxyBodySizeSuite) makeRequestWithBody(c *Cluster, host, method, path 
 	require.NoError(s.T(), err)
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(s.T(), err)
+	// Tolerate read errors (e.g. unexpected EOF) when the server rejects
+	// a large body — it may close the connection after sending the status.
+	respBody, _ := io.ReadAll(resp.Body)
 
 	return &Response{
 		StatusCode:      resp.StatusCode,
@@ -140,4 +180,57 @@ func (s *ProxyBodySizeSuite) TestVeryLargeBodyUnlimited() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for unlimited body size")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for unlimited body size")
+}
+
+func (s *ProxyBodySizeSuite) TestBufferingOffSmallBody() {
+	body := bytes.Repeat([]byte("B"), 500)
+
+	traefikResp := s.makeRequestWithBody(s.traefik, bufferingOffTraefikHost, http.MethodPost, "/", body)
+	nginxResp := s.makeRequestWithBody(s.nginx, bufferingOffNginxHost, http.MethodPost, "/", body)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for small body with buffering off")
+	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for small body with buffering off")
+}
+
+func (s *ProxyBodySizeSuite) TestBufferingOffLargeBody() {
+	body := bytes.Repeat([]byte("B"), 100*1024)
+
+	traefikResp := s.makeRequestWithBody(s.traefik, bufferingOffTraefikHost, http.MethodPost, "/", body)
+	nginxResp := s.makeRequestWithBody(s.nginx, bufferingOffNginxHost, http.MethodPost, "/", body)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for large body with buffering off")
+	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for large body with buffering off")
+}
+
+func (s *ProxyBodySizeSuite) TestExactBoundaryBody() {
+	body := bytes.Repeat([]byte("A"), 1024)
+
+	traefikResp := s.makeRequestWithBody(s.traefik, bodyLimitTraefikHost, http.MethodPost, "/", body)
+	nginxResp := s.makeRequestWithBody(s.nginx, bodyLimitNginxHost, http.MethodPost, "/", body)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
+		"exact boundary (1024 bytes against 1k limit) should be handled the same way")
+}
+
+func (s *ProxyBodySizeSuite) TestBodyLimitMBSuffix() {
+	// 500KB body should be accepted under a 1m limit.
+	smallBody := bytes.Repeat([]byte("M"), 500*1024)
+
+	traefikResp := s.makeRequestWithBody(s.traefik, bodyLimitMBTraefikHost, http.MethodPost, "/", smallBody)
+	nginxResp := s.makeRequestWithBody(s.nginx, bodyLimitMBNginxHost, http.MethodPost, "/", smallBody)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for 500KB body")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for 500KB body under 1m limit")
+	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for 500KB body under 1m limit")
+
+	// 2MB body should exceed the 1m limit.
+	largeBody := bytes.Repeat([]byte("M"), 2*1024*1024)
+
+	traefikResp = s.makeRequestWithBody(s.traefik, bodyLimitMBTraefikHost, http.MethodPost, "/", largeBody)
+	nginxResp = s.makeRequestWithBody(s.nginx, bodyLimitMBNginxHost, http.MethodPost, "/", largeBody)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for 2MB body")
+	assert.Equal(s.T(), http.StatusRequestEntityTooLarge, nginxResp.StatusCode, "nginx should return 413 for body exceeding 1m limit")
 }
