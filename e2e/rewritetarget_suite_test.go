@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -46,105 +45,51 @@ func (s *RewriteTargetSuite) SetupSuite() {
 
 	// Simple rewrite ingress: /app(.*) -> /$1
 	// use-regex + ImplementationSpecific is required for rewrite-target on nginx-ingress.
-	simpleRewriteTraefik := fmt.Sprintf(`apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: %s
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: "/$2"
-    nginx.ingress.kubernetes.io/use-regex: "true"
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: %s
-    http:
-      paths:
-      - path: /app(/|$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: snippet-test-backend
-            port:
-              number: 80
-`, rewriteIngressName, rewriteTraefikHost)
+	simpleRewriteAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/rewrite-target": "/$2",
+		"nginx.ingress.kubernetes.io/use-regex":      "true",
+	}
 
-	simpleRewriteNginx := fmt.Sprintf(`apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: %s
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: "/$2"
-    nginx.ingress.kubernetes.io/use-regex: "true"
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: %s
-    http:
-      paths:
-      - path: /app(/|$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: snippet-test-backend
-            port:
-              number: 80
-`, rewriteIngressName, rewriteNginxHost)
-
-	err := s.traefik.ApplyManifest(simpleRewriteTraefik)
+	err := s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        rewriteIngressName,
+		Host:        rewriteTraefikHost,
+		Annotations: simpleRewriteAnnotations,
+		Path:        "/app(/|$)(.*)",
+		PathType:    "ImplementationSpecific",
+	})
 	require.NoError(s.T(), err, "deploy simple rewrite ingress to traefik cluster")
 
-	err = s.nginx.ApplyManifest(simpleRewriteNginx)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        rewriteIngressName,
+		Host:        rewriteNginxHost,
+		Annotations: simpleRewriteAnnotations,
+		Path:        "/app(/|$)(.*)",
+		PathType:    "ImplementationSpecific",
+	})
 	require.NoError(s.T(), err, "deploy simple rewrite ingress to nginx cluster")
 
 	// Capture group rewrite ingress: /api(/|$)(.*) -> /$2
-	captureRewriteTraefik := fmt.Sprintf(`apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: %s
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: "/$2"
-    nginx.ingress.kubernetes.io/use-regex: "true"
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: %s
-    http:
-      paths:
-      - path: /api(/|$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: snippet-test-backend
-            port:
-              number: 80
-`, rewriteCaptureIngressName, rewriteCaptureTraefikHost)
+	captureRewriteAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/rewrite-target": "/$2",
+		"nginx.ingress.kubernetes.io/use-regex":      "true",
+	}
 
-	captureRewriteNginx := fmt.Sprintf(`apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: %s
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: "/$2"
-    nginx.ingress.kubernetes.io/use-regex: "true"
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: %s
-    http:
-      paths:
-      - path: /api(/|$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: snippet-test-backend
-            port:
-              number: 80
-`, rewriteCaptureIngressName, rewriteCaptureNginxHost)
-
-	err = s.traefik.ApplyManifest(captureRewriteTraefik)
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        rewriteCaptureIngressName,
+		Host:        rewriteCaptureTraefikHost,
+		Annotations: captureRewriteAnnotations,
+		Path:        "/api(/|$)(.*)",
+		PathType:    "ImplementationSpecific",
+	})
 	require.NoError(s.T(), err, "deploy capture group rewrite ingress to traefik cluster")
 
-	err = s.nginx.ApplyManifest(captureRewriteNginx)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        rewriteCaptureIngressName,
+		Host:        rewriteCaptureNginxHost,
+		Annotations: captureRewriteAnnotations,
+		Path:        "/api(/|$)(.*)",
+		PathType:    "ImplementationSpecific",
+	})
 	require.NoError(s.T(), err, "deploy capture group rewrite ingress to nginx cluster")
 
 	// App-root redirect ingress: / -> /dashboard
@@ -172,52 +117,26 @@ spec:
 	require.NoError(s.T(), err, "deploy no-regex ingress to nginx cluster")
 
 	// Exact path rewrite ingress: /original -> /rewritten (pathType: Exact)
-	exactPathTraefik := fmt.Sprintf(`apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: %s
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: "/rewritten"
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: %s
-    http:
-      paths:
-      - path: /original
-        pathType: Exact
-        backend:
-          service:
-            name: snippet-test-backend
-            port:
-              number: 80
-`, exactPathIngressName, exactPathTraefikHost)
+	exactPathAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/rewrite-target": "/rewritten",
+	}
 
-	exactPathNginx := fmt.Sprintf(`apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: %s
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: "/rewritten"
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: %s
-    http:
-      paths:
-      - path: /original
-        pathType: Exact
-        backend:
-          service:
-            name: snippet-test-backend
-            port:
-              number: 80
-`, exactPathIngressName, exactPathNginxHost)
-
-	err = s.traefik.ApplyManifest(exactPathTraefik)
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        exactPathIngressName,
+		Host:        exactPathTraefikHost,
+		Annotations: exactPathAnnotations,
+		Path:        "/original",
+		PathType:    "Exact",
+	})
 	require.NoError(s.T(), err, "deploy exact-path rewrite ingress to traefik cluster")
 
-	err = s.nginx.ApplyManifest(exactPathNginx)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        exactPathIngressName,
+		Host:        exactPathNginxHost,
+		Annotations: exactPathAnnotations,
+		Path:        "/original",
+		PathType:    "Exact",
+	})
 	require.NoError(s.T(), err, "deploy exact-path rewrite ingress to nginx cluster")
 
 	// Wait for ingresses to be ready by polling the actual paths.
@@ -248,10 +167,10 @@ func (s *RewriteTargetSuite) waitForRewriteIngressReady(c *Cluster, host, path s
 }
 
 func (s *RewriteTargetSuite) TearDownSuite() {
-	_ = s.traefik.Kubectl("delete", "ingress", rewriteIngressName, "-n", s.traefik.TestNamespace, "--ignore-not-found")
-	_ = s.nginx.Kubectl("delete", "ingress", rewriteIngressName, "-n", s.nginx.TestNamespace, "--ignore-not-found")
-	_ = s.traefik.Kubectl("delete", "ingress", rewriteCaptureIngressName, "-n", s.traefik.TestNamespace, "--ignore-not-found")
-	_ = s.nginx.Kubectl("delete", "ingress", rewriteCaptureIngressName, "-n", s.nginx.TestNamespace, "--ignore-not-found")
+	_ = s.traefik.DeleteIngress(rewriteIngressName)
+	_ = s.nginx.DeleteIngress(rewriteIngressName)
+	_ = s.traefik.DeleteIngress(rewriteCaptureIngressName)
+	_ = s.nginx.DeleteIngress(rewriteCaptureIngressName)
 	_ = s.traefik.DeleteIngress(appRootIngressName)
 	_ = s.nginx.DeleteIngress(appRootIngressName)
 	_ = s.traefik.DeleteIngress(noRegexIngressName)

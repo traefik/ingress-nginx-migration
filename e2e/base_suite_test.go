@@ -275,17 +275,30 @@ func renderTraefikHelmChart(image string) (string, error) {
 type ingressTemplateData struct {
 	Name        string
 	Host        string
+	Path        string
+	PathType    string
 	Annotations map[string]string
 }
 
-func renderIngressManifest(name, host string, annotations map[string]string) (string, error) {
-	tmplPath := filepath.Join(fixturesDir, "ingress.yaml.tmpl")
+type secretTemplateData struct {
+	Name string
+	Type string
+	Data map[string]string
+}
+
+type configMapTemplateData struct {
+	Name string
+	Data map[string]string
+}
+
+func renderManifest(templateFile string, data any) (string, error) {
+	tmplPath := filepath.Join(fixturesDir, templateFile)
 	tmplContent, err := os.ReadFile(tmplPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read ingress template: %w", err)
+		return "", fmt.Errorf("failed to read template %s: %w", templateFile, err)
 	}
 
-	tmpl, err := template.New("ingress").Funcs(template.FuncMap{
+	tmpl, err := template.New(templateFile).Funcs(template.FuncMap{
 		"indent": func(spaces int, s string) string {
 			pad := strings.Repeat(" ", spaces)
 			lines := strings.Split(s, "\n")
@@ -304,32 +317,50 @@ func renderIngressManifest(name, host string, annotations map[string]string) (st
 		},
 	}).Parse(string(tmplContent))
 	if err != nil {
-		return "", fmt.Errorf("failed to parse ingress template: %w", err)
-	}
-
-	// Clean annotation values.
-	cleaned := make(map[string]string, len(annotations))
-	for k, v := range annotations {
-		cleaned[k] = strings.ReplaceAll(strings.TrimSpace(v), "\t", "  ")
-	}
-
-	data := ingressTemplateData{
-		Name:        name,
-		Host:        host,
-		Annotations: cleaned,
+		return "", fmt.Errorf("failed to parse template %s: %w", templateFile, err)
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute ingress template: %w", err)
+		return "", fmt.Errorf("failed to execute template %s: %w", templateFile, err)
 	}
 
 	return buf.String(), nil
 }
 
+func renderIngressManifest(data ingressTemplateData) (string, error) {
+	if data.Path == "" {
+		data.Path = "/"
+	}
+	if data.PathType == "" {
+		data.PathType = "Prefix"
+	}
+
+	// Clean annotation values.
+	cleaned := make(map[string]string, len(data.Annotations))
+	for k, v := range data.Annotations {
+		cleaned[k] = strings.ReplaceAll(strings.TrimSpace(v), "\t", "  ")
+	}
+	data.Annotations = cleaned
+
+	return renderManifest("ingress.yaml.tmpl", data)
+}
+
+func renderSecretManifest(data secretTemplateData) (string, error) {
+	if data.Type == "" {
+		data.Type = "Opaque"
+	}
+	return renderManifest("secret.yaml.tmpl", data)
+}
+
+func renderConfigMapManifest(data configMapTemplateData) (string, error) {
+	return renderManifest("configmap.yaml.tmpl", data)
+}
+
 // BaseSuite provides shared infrastructure for all e2e test suites.
 type BaseSuite struct {
 	suite.Suite
+
 	traefik *Cluster
 	nginx   *Cluster
 }

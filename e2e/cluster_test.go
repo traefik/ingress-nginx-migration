@@ -58,7 +58,16 @@ func (c *Cluster) ApplyFixture(filename string) error {
 
 // DeployIngress deploys an ingress resource with the given annotations.
 func (c *Cluster) DeployIngress(name, host string, annotations map[string]string) error {
-	manifest, err := renderIngressManifest(name, host, annotations)
+	return c.DeployIngressWith(ingressTemplateData{
+		Name:        name,
+		Host:        host,
+		Annotations: annotations,
+	})
+}
+
+// DeployIngressWith deploys an ingress resource with full control over all template fields.
+func (c *Cluster) DeployIngressWith(data ingressTemplateData) error {
+	manifest, err := renderIngressManifest(data)
 	if err != nil {
 		return err
 	}
@@ -68,6 +77,34 @@ func (c *Cluster) DeployIngress(name, host string, annotations map[string]string
 // DeleteIngress deletes an ingress resource.
 func (c *Cluster) DeleteIngress(name string) error {
 	return c.Kubectl("delete", "ingress", name, "-n", c.TestNamespace, "--ignore-not-found")
+}
+
+// DeploySecret deploys a secret resource.
+func (c *Cluster) DeploySecret(data secretTemplateData) error {
+	manifest, err := renderSecretManifest(data)
+	if err != nil {
+		return err
+	}
+	return c.ApplyManifest(manifest)
+}
+
+// DeployConfigMap deploys a configmap resource.
+func (c *Cluster) DeployConfigMap(data configMapTemplateData) error {
+	manifest, err := renderConfigMapManifest(data)
+	if err != nil {
+		return err
+	}
+	return c.ApplyManifest(manifest)
+}
+
+// DeleteSecret deletes a secret resource.
+func (c *Cluster) DeleteSecret(name string) error {
+	return c.Kubectl("delete", "secret", name, "-n", c.TestNamespace, "--ignore-not-found")
+}
+
+// DeleteConfigMap deletes a configmap resource.
+func (c *Cluster) DeleteConfigMap(name string) error {
+	return c.Kubectl("delete", "configmap", name, "-n", c.TestNamespace, "--ignore-not-found")
 }
 
 // DeploySharedResources deploys the whoami backend.

@@ -17,8 +17,8 @@ spec:
   - host: {{ .Host }}
     http:
       paths:
-      - path: /
-        pathType: Prefix
+      - path: {{ .Path }}
+        pathType: {{ .PathType }}
         backend:
           service:
             name: snippet-test-backend

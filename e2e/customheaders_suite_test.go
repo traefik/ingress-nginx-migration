@@ -30,20 +30,19 @@ func (s *CustomHeadersSuite) SetupSuite() {
 	s.BaseSuite.SetupSuite()
 
 	// Create the ConfigMap with custom response headers on both clusters.
-	configMapManifest := `apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: custom-headers
-data:
-  X-Custom-Resp: "custom-response-value"
-  X-Frame-Options: "DENY"
-  X-More-Resp: "more-response-value"
-`
+	cmData := configMapTemplateData{
+		Name: customHeadersConfigMapName,
+		Data: map[string]string{
+			"X-Custom-Resp":   "custom-response-value",
+			"X-Frame-Options": "DENY",
+			"X-More-Resp":     "more-response-value",
+		},
+	}
 
-	err := s.traefik.ApplyManifest(configMapManifest)
+	err := s.traefik.DeployConfigMap(cmData)
 	require.NoError(s.T(), err, "create custom-headers configmap in traefik cluster")
 
-	err = s.nginx.ApplyManifest(configMapManifest)
+	err = s.nginx.DeployConfigMap(cmData)
 	require.NoError(s.T(), err, "create custom-headers configmap in nginx cluster")
 
 	// Traefik: uses the per-ingress annotation to reference the ConfigMap.
@@ -73,8 +72,8 @@ data:
 func (s *CustomHeadersSuite) TearDownSuite() {
 	_ = s.traefik.DeleteIngress(customHeadersIngressName)
 	_ = s.nginx.DeleteIngress(customHeadersIngressName)
-	_ = s.traefik.Kubectl("delete", "configmap", customHeadersConfigMapName, "-n", s.traefik.TestNamespace, "--ignore-not-found")
-	_ = s.nginx.Kubectl("delete", "configmap", customHeadersConfigMapName, "-n", s.nginx.TestNamespace, "--ignore-not-found")
+	_ = s.traefik.DeleteConfigMap(customHeadersConfigMapName)
+	_ = s.nginx.DeleteConfigMap(customHeadersConfigMapName)
 
 	// Remove the add-headers key from the nginx controller ConfigMap.
 	_ = s.nginx.Kubectl("patch", "configmap", "ingress-nginx-controller",

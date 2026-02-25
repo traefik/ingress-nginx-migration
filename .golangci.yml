@@ -18,7 +18,6 @@ linters:
     - noctx
     - nonamedreturns
     - noinlineerr
-    - paralleltest
     - prealloc
     - revive
     - rowserrcheck

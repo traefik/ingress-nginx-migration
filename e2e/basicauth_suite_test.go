@@ -3,7 +3,6 @@ package e2e
 import (
 	"crypto/sha1"
 	"encoding/base64"
-	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -43,19 +42,17 @@ func (s *BasicAuthSuite) SetupSuite() {
 
 	// Create the htpasswd secret on both clusters.
 	htpasswd := htpasswdSHA(basicAuthUser, basicAuthPass)
-	secretManifest := fmt.Sprintf(`apiVersion: v1
-kind: Secret
-metadata:
-  name: basic-auth
-type: Opaque
-data:
-  auth: %s
-`, base64.StdEncoding.EncodeToString([]byte(htpasswd)))
+	basicAuthSecret := secretTemplateData{
+		Name: "basic-auth",
+		Data: map[string]string{
+			"auth": base64.StdEncoding.EncodeToString([]byte(htpasswd)),
+		},
+	}
 
-	err := s.traefik.ApplyManifest(secretManifest)
+	err := s.traefik.DeploySecret(basicAuthSecret)
 	require.NoError(s.T(), err, "create basic-auth secret in traefik cluster")
 
-	err = s.nginx.ApplyManifest(secretManifest)
+	err = s.nginx.DeploySecret(basicAuthSecret)
 	require.NoError(s.T(), err, "create basic-auth secret in nginx cluster")
 
 	annotations := map[string]string{
@@ -73,19 +70,17 @@ data:
 	// Create the auth-map secret where keys are usernames, values are password hashes.
 	// The {SHA} hash format is: base64(sha1(password))
 	mapHash := sha1Hash(authMapPass)
-	authMapSecret := fmt.Sprintf(`apiVersion: v1
-kind: Secret
-metadata:
-  name: auth-map-secret
-type: Opaque
-data:
-  %s: %s
-`, authMapUser, base64.StdEncoding.EncodeToString([]byte("{SHA}"+mapHash)))
+	authMapSecretData := secretTemplateData{
+		Name: "auth-map-secret",
+		Data: map[string]string{
+			authMapUser: base64.StdEncoding.EncodeToString([]byte("{SHA}" + mapHash)),
+		},
+	}
 
-	err = s.traefik.ApplyManifest(authMapSecret)
+	err = s.traefik.DeploySecret(authMapSecretData)
 	require.NoError(s.T(), err, "create auth-map secret in traefik cluster")
 
-	err = s.nginx.ApplyManifest(authMapSecret)
+	err = s.nginx.DeploySecret(authMapSecretData)
 	require.NoError(s.T(), err, "create auth-map secret in nginx cluster")
 
 	authMapAnnotations := map[string]string{
@@ -110,12 +105,12 @@ data:
 func (s *BasicAuthSuite) TearDownSuite() {
 	_ = s.traefik.DeleteIngress(basicAuthIngressName)
 	_ = s.nginx.DeleteIngress(basicAuthIngressName)
-	_ = s.traefik.Kubectl("delete", "secret", "basic-auth", "-n", s.traefik.TestNamespace, "--ignore-not-found")
-	_ = s.nginx.Kubectl("delete", "secret", "basic-auth", "-n", s.nginx.TestNamespace, "--ignore-not-found")
+	_ = s.traefik.DeleteSecret("basic-auth")
+	_ = s.nginx.DeleteSecret("basic-auth")
 	_ = s.traefik.DeleteIngress(authMapIngressName)
 	_ = s.nginx.DeleteIngress(authMapIngressName)
-	_ = s.traefik.Kubectl("delete", "secret", "auth-map-secret", "-n", s.traefik.TestNamespace, "--ignore-not-found")
-	_ = s.nginx.Kubectl("delete", "secret", "auth-map-secret", "-n", s.nginx.TestNamespace, "--ignore-not-found")
+	_ = s.traefik.DeleteSecret("auth-map-secret")
+	_ = s.nginx.DeleteSecret("auth-map-secret")
 }
 
 func basicAuthHeader(user, pass string) map[string]string {
