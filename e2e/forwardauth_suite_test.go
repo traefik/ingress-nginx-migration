@@ -24,7 +24,12 @@ const (
 	forwardAuthHeadersTraefikHost = forwardAuthHeadersIngressName + ".traefik.local"
 	forwardAuthHeadersNginxHost   = forwardAuthHeadersIngressName + ".nginx.local"
 
+	forwardAuthSigninIngressName = "forward-auth-signin-test"
+	forwardAuthSigninTraefikHost = forwardAuthSigninIngressName + ".traefik.local"
+	forwardAuthSigninNginxHost   = forwardAuthSigninIngressName + ".nginx.local"
+
 	authServerServiceURL = "http://auth-server.default.svc.cluster.local"
+	authSigninURL        = "https://login.example.com/oauth2/start"
 )
 
 type ForwardAuthSuite struct {
@@ -86,12 +91,26 @@ func (s *ForwardAuthSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(forwardAuthHeadersIngressName, forwardAuthHeadersNginxHost, headersAnnotations)
 	require.NoError(s.T(), err, "deploy forward-auth-headers ingress to nginx cluster")
 
+	// 4. Forward auth with signin URL (auth-url returns 401, redirects to signin).
+	signinAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/auth-url":    authServerServiceURL + "/deny",
+		"nginx.ingress.kubernetes.io/auth-signin": authSigninURL,
+	}
+
+	err = s.traefik.DeployIngress(forwardAuthSigninIngressName, forwardAuthSigninTraefikHost, signinAnnotations)
+	require.NoError(s.T(), err, "deploy forward-auth-signin ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(forwardAuthSigninIngressName, forwardAuthSigninNginxHost, signinAnnotations)
+	require.NoError(s.T(), err, "deploy forward-auth-signin ingress to nginx cluster")
+
 	s.traefik.WaitForIngressReady(s.T(), forwardAuthTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), forwardAuthNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), forwardAuthDenyTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), forwardAuthDenyNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), forwardAuthHeadersTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), forwardAuthHeadersNginxHost, 20, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), forwardAuthSigninTraefikHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), forwardAuthSigninNginxHost, 20, 1*time.Second)
 }
 
 func (s *ForwardAuthSuite) TearDownSuite() {
@@ -101,6 +120,8 @@ func (s *ForwardAuthSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(forwardAuthDenyIngressName)
 	_ = s.traefik.DeleteIngress(forwardAuthHeadersIngressName)
 	_ = s.nginx.DeleteIngress(forwardAuthHeadersIngressName)
+	_ = s.traefik.DeleteIngress(forwardAuthSigninIngressName)
+	_ = s.nginx.DeleteIngress(forwardAuthSigninIngressName)
 
 	// Clean up auth server.
 	_ = s.traefik.Kubectl("delete", "-f", fmt.Sprintf("%s/auth-server.yaml", fixturesDir), "-n", s.traefik.TestNamespace, "--ignore-not-found")
@@ -214,4 +235,51 @@ func (s *ForwardAuthSuite) TestAuthAllowWithCustomHeaders() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with custom headers")
+}
+
+// requestSignin makes the same HTTP request against both clusters using the signin forward-auth ingress.
+func (s *ForwardAuthSuite) requestSignin(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
+	s.T().Helper()
+
+	traefikResp = s.traefik.MakeRequest(s.T(), forwardAuthSigninTraefikHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), forwardAuthSigninNginxHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	return traefikResp, nginxResp
+}
+
+func (s *ForwardAuthSuite) TestAuthSigninRedirectsOnDeny() {
+	traefikResp, nginxResp := s.requestSignin(http.MethodGet, "/", nil)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode,
+		"expected 302 redirect when auth service returns 401 with auth-signin configured")
+	assert.Equal(s.T(), http.StatusFound, nginxResp.StatusCode,
+		"expected 302 redirect when auth service returns 401 with auth-signin configured")
+
+	traefikLocation := traefikResp.ResponseHeaders.Get("Location")
+	nginxLocation := nginxResp.ResponseHeaders.Get("Location")
+
+	assert.Contains(s.T(), traefikLocation, "login.example.com",
+		"traefik Location header should contain the auth-signin host")
+	assert.Contains(s.T(), nginxLocation, "login.example.com",
+		"nginx Location header should contain the auth-signin host")
+}
+
+func (s *ForwardAuthSuite) TestAuthSigninRedirectsOnSubpath() {
+	traefikResp, nginxResp := s.requestSignin(http.MethodGet, "/protected/resource", nil)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode,
+		"expected 302 redirect on subpath when auth-signin is configured")
+
+	traefikLocation := traefikResp.ResponseHeaders.Get("Location")
+	nginxLocation := nginxResp.ResponseHeaders.Get("Location")
+
+	assert.Contains(s.T(), traefikLocation, "login.example.com",
+		"traefik Location header should contain the auth-signin host on subpath")
+	assert.Contains(s.T(), nginxLocation, "login.example.com",
+		"nginx Location header should contain the auth-signin host on subpath")
 }

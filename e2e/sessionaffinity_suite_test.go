@@ -19,6 +19,10 @@ const (
 	affinityCustomIngressName = "affinity-custom-test"
 	affinityCustomTraefikHost = affinityCustomIngressName + ".traefik.local"
 	affinityCustomNginxHost   = affinityCustomIngressName + ".nginx.local"
+
+	affinityExtendedIngressName = "affinity-extended-test"
+	affinityExtendedTraefikHost = affinityExtendedIngressName + ".traefik.local"
+	affinityExtendedNginxHost   = affinityExtendedIngressName + ".nginx.local"
 )
 
 type SessionAffinitySuite struct {
@@ -59,10 +63,26 @@ func (s *SessionAffinitySuite) SetupSuite() {
 	err = s.nginx.DeployIngress(affinityCustomIngressName, affinityCustomNginxHost, customAnnotations)
 	require.NoError(s.T(), err, "deploy custom affinity ingress to nginx cluster")
 
+	// Extended affinity with domain and expires.
+	extendedAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/affinity":                "cookie",
+		"nginx.ingress.kubernetes.io/session-cookie-name":     "EXTSESSION",
+		"nginx.ingress.kubernetes.io/session-cookie-domain":   ".example.com",
+		"nginx.ingress.kubernetes.io/session-cookie-expires":  "172800",
+	}
+
+	err = s.traefik.DeployIngress(affinityExtendedIngressName, affinityExtendedTraefikHost, extendedAnnotations)
+	require.NoError(s.T(), err, "deploy extended affinity ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(affinityExtendedIngressName, affinityExtendedNginxHost, extendedAnnotations)
+	require.NoError(s.T(), err, "deploy extended affinity ingress to nginx cluster")
+
 	s.traefik.WaitForIngressReady(s.T(), affinityDefaultTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), affinityDefaultNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), affinityCustomTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), affinityCustomNginxHost, 20, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), affinityExtendedTraefikHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), affinityExtendedNginxHost, 20, 1*time.Second)
 }
 
 func (s *SessionAffinitySuite) TearDownSuite() {
@@ -70,6 +90,8 @@ func (s *SessionAffinitySuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(affinityDefaultIngressName)
 	_ = s.traefik.DeleteIngress(affinityCustomIngressName)
 	_ = s.nginx.DeleteIngress(affinityCustomIngressName)
+	_ = s.traefik.DeleteIngress(affinityExtendedIngressName)
+	_ = s.nginx.DeleteIngress(affinityExtendedIngressName)
 }
 
 // requestDefault makes the same HTTP request against both clusters using the default affinity ingress.
@@ -210,4 +232,51 @@ func (s *SessionAffinitySuite) TestStickySessionWithCookie() {
 
 	assert.Equal(s.T(), http.StatusOK, traefikResp2.StatusCode, "traefik should return 200 with cookie")
 	assert.Equal(s.T(), http.StatusOK, nginxResp2.StatusCode, "nginx should return 200 with cookie")
+}
+
+// requestExtended makes the same HTTP request against both clusters using the extended affinity ingress.
+func (s *SessionAffinitySuite) requestExtended(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
+	s.T().Helper()
+
+	traefikResp = s.traefik.MakeRequest(s.T(), affinityExtendedTraefikHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), affinityExtendedNginxHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	return traefikResp, nginxResp
+}
+
+func (s *SessionAffinitySuite) TestExtendedCookieDomain() {
+	traefikResp, nginxResp := s.requestExtended(http.MethodGet, "/", nil)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+
+	traefikCookie := findCookie(traefikResp.ResponseHeaders, "EXTSESSION")
+	nginxCookie := findCookie(nginxResp.ResponseHeaders, "EXTSESSION")
+
+	assert.NotEmpty(s.T(), traefikCookie, "traefik should set EXTSESSION cookie")
+	assert.NotEmpty(s.T(), nginxCookie, "nginx should set EXTSESSION cookie")
+
+	assert.Contains(s.T(), traefikCookie, "Domain=.example.com", "traefik cookie should have Domain=.example.com")
+	assert.Contains(s.T(), nginxCookie, "Domain=.example.com", "nginx cookie should have Domain=.example.com")
+}
+
+func (s *SessionAffinitySuite) TestExtendedCookieExpires() {
+	traefikResp, nginxResp := s.requestExtended(http.MethodGet, "/", nil)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+
+	traefikCookie := findCookie(traefikResp.ResponseHeaders, "EXTSESSION")
+	nginxCookie := findCookie(nginxResp.ResponseHeaders, "EXTSESSION")
+
+	assert.NotEmpty(s.T(), traefikCookie, "traefik should set EXTSESSION cookie")
+	assert.NotEmpty(s.T(), nginxCookie, "nginx should set EXTSESSION cookie")
+
+	// session-cookie-expires=172800 should result in the cookie having an expiry.
+	traefikHasExpiry := strings.Contains(traefikCookie, "Expires=") || strings.Contains(traefikCookie, "Max-Age=")
+	nginxHasExpiry := strings.Contains(nginxCookie, "Expires=") || strings.Contains(nginxCookie, "Max-Age=")
+
+	assert.True(s.T(), traefikHasExpiry, "traefik cookie should have Expires or Max-Age set")
+	assert.True(s.T(), nginxHasExpiry, "nginx cookie should have Expires or Max-Age set")
 }
