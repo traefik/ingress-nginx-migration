@@ -29,3 +29,5 @@ spec:
         entryPoints: ["web"]
     additionalArguments:
       - --providers.kubernetesIngressNginx.allowSnippetAnnotations
+      - --providers.kubernetesIngressNginx.proxyBuffering=true
+      - --providers.kubernetesIngressNginx.proxyRequestBuffering=true

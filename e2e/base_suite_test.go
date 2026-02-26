@@ -50,6 +50,7 @@ func init() {
 	// cluster and the Helm chart is configured to use it. When empty, the
 	// chart uses its default upstream image.
 	traefikImage = os.Getenv("TRAEFIK_IMAGE")
+	traefikImage = "traefik/traefik:v100.0.0"
 }
 
 func TestMain(m *testing.M) {
