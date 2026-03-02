@@ -20,9 +20,16 @@ type Cluster struct {
 	KubeconfigPath  string
 	Host            string
 	Port            string
+	PortHTTPS       string
 	TestNamespace   string
 	ControllerNS    string
 	ControllerLabel string
+}
+
+// IngressName returns the ingress name prefixed with the cluster name.
+// This avoids name collisions when both controllers run in the same cluster.
+func (c *Cluster) IngressName(name string) string {
+	return c.Name + "-" + name
 }
 
 // Response holds the parsed HTTP response from a cluster.
@@ -66,7 +73,9 @@ func (c *Cluster) DeployIngress(name, host string, annotations map[string]string
 }
 
 // DeployIngressWith deploys an ingress resource with full control over all template fields.
+// The ingress name is automatically prefixed with the cluster name to avoid collisions.
 func (c *Cluster) DeployIngressWith(data ingressTemplateData) error {
+	data.Name = c.IngressName(data.Name)
 	manifest, err := renderIngressManifest(data)
 	if err != nil {
 		return err
@@ -75,8 +84,9 @@ func (c *Cluster) DeployIngressWith(data ingressTemplateData) error {
 }
 
 // DeleteIngress deletes an ingress resource.
+// The name is automatically prefixed with the cluster name.
 func (c *Cluster) DeleteIngress(name string) error {
-	return c.Kubectl("delete", "ingress", name, "-n", c.TestNamespace, "--ignore-not-found")
+	return c.Kubectl("delete", "ingress", c.IngressName(name), "-n", c.TestNamespace, "--ignore-not-found")
 }
 
 // DeploySecret deploys a secret resource.

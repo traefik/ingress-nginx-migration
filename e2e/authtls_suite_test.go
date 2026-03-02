@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -74,16 +73,9 @@ func (s *AuthTLSSuite) SetupSuite() {
 	require.NoError(s.T(), err, "generate mTLS certificates")
 	s.certs = certs
 
-	// Resolve HTTPS ports from the k3s containers.
-	ctx := context.Background()
-
-	traefikHTTPSPort, err := s.traefik.Container.MappedPort(ctx, "443/tcp")
-	require.NoError(s.T(), err, "get traefik HTTPS mapped port")
-	s.traefikHTTPS = fmt.Sprintf("%s:%s", s.traefik.Host, traefikHTTPSPort.Port())
-
-	nginxHTTPSPort, err := s.nginx.Container.MappedPort(ctx, "443/tcp")
-	require.NoError(s.T(), err, "get nginx HTTPS mapped port")
-	s.nginxHTTPS = fmt.Sprintf("%s:%s", s.nginx.Host, nginxHTTPSPort.Port())
+	// Resolve HTTPS ports from the cluster structs.
+	s.traefikHTTPS = fmt.Sprintf("%s:%s", s.traefik.Host, s.traefik.PortHTTPS)
+	s.nginxHTTPS = fmt.Sprintf("%s:%s", s.nginx.Host, s.nginx.PortHTTPS)
 
 	// Deploy the CA certificate secret to both clusters.
 	// The provider reads ca.crt from the secret data.
@@ -182,11 +174,11 @@ func (s *AuthTLSSuite) TearDownSuite() {
 func (s *AuthTLSSuite) deployAuthTLSIngress(name, traefikHost, nginxHost string, annotations map[string]string) {
 	s.T().Helper()
 
-	traefikManifest := renderTLSIngressManifest(name, traefikHost, authTLSServerTLSSecretName, annotations)
+	traefikManifest := renderTLSIngressManifest(s.traefik.IngressName(name), traefikHost, authTLSServerTLSSecretName, annotations)
 	err := s.traefik.ApplyManifest(traefikManifest)
 	require.NoError(s.T(), err, "deploy %s ingress to traefik cluster", name)
 
-	nginxManifest := renderTLSIngressManifest(name, nginxHost, authTLSServerTLSSecretName, annotations)
+	nginxManifest := renderTLSIngressManifest(s.nginx.IngressName(name), nginxHost, authTLSServerTLSSecretName, annotations)
 	err = s.nginx.ApplyManifest(nginxManifest)
 	require.NoError(s.T(), err, "deploy %s ingress to nginx cluster", name)
 }

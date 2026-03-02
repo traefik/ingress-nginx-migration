@@ -14,6 +14,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
@@ -50,7 +51,6 @@ func init() {
 	// cluster and the Helm chart is configured to use it. When empty, the
 	// chart uses its default upstream image.
 	traefikImage = os.Getenv("TRAEFIK_IMAGE")
-	traefikImage = "traefik/traefik:v100.0.0"
 }
 
 func TestMain(m *testing.M) {
@@ -61,57 +61,76 @@ func TestMain(m *testing.M) {
 func initClusters() error {
 	ctx := context.Background()
 
-	fmt.Printf("Creating k3s clusters with image: %s\n", k3sImage)
+	fmt.Printf("Creating k3s cluster with image: %s\n", k3sImage)
 
-	// Render the traefik helm chart, optionally configured with a custom image.
-	traefikManifestPath, err := renderTraefikHelmChart(traefikImage)
+	// Create a single k3s cluster with the nginx helm chart auto-deployed.
+	// Traefik listens on ports 80/443, nginx on 30080/30443.
+	container, err := k3s.Run(ctx, k3sImage,
+		testcontainers.WithExposedPorts("80/tcp", "443/tcp", "30080/tcp", "30443/tcp"),
+		k3s.WithManifest(filepath.Join(fixturesDir, "nginx-helmchart.yaml")),
+	)
 	if err != nil {
-		return fmt.Errorf("failed to render traefik helm chart: %v", err)
-	}
-	defer os.Remove(traefikManifestPath)
-
-	// Create both k3s containers.
-	traefikContainer, err := createCluster(ctx, traefikManifestPath)
-	if err != nil {
-		return fmt.Errorf("failed to create traefik cluster: %v", err)
+		return fmt.Errorf("failed to create cluster: %v", err)
 	}
 
 	// When a custom Traefik image is provided, load it into the k3s cluster
 	// so the HelmChart uses it instead of pulling from the registry.
 	if traefikImage != "" {
-		fmt.Printf("Loading image %s into traefik cluster...\n", traefikImage)
-		if err := traefikContainer.LoadImages(ctx, traefikImage); err != nil {
+		fmt.Printf("Loading image %s into cluster...\n", traefikImage)
+		if err := container.LoadImages(ctx, traefikImage); err != nil {
 			return fmt.Errorf("failed to load traefik image: %v", err)
 		}
 	} else {
 		fmt.Println("No TRAEFIK_IMAGE set, using chart default image")
 	}
 
-	nginxContainer, err := createCluster(ctx, filepath.Join(fixturesDir, "nginx-helmchart.yaml"))
+	// Render and apply the traefik helm chart after the image is loaded,
+	// so k3s can find the image when the HelmChart controller starts.
+	traefikManifestPath, err := renderTraefikHelmChart(traefikImage)
 	if err != nil {
-		return fmt.Errorf("failed to create nginx cluster: %v", err)
+		return fmt.Errorf("failed to render traefik helm chart: %v", err)
+	}
+	defer os.Remove(traefikManifestPath)
+
+	traefikManifest, err := os.ReadFile(traefikManifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read traefik manifest: %v", err)
 	}
 
-	// Build Cluster structs.
-	sharedTraefik, err = newCluster("traefik", traefikContainer, "traefik", "app.kubernetes.io/name=traefik")
+	if err := container.CopyToContainer(ctx, traefikManifest, "/var/lib/rancher/k3s/server/manifests/traefik-helmchart.yaml", 0o644); err != nil {
+		return fmt.Errorf("failed to copy traefik manifest: %v", err)
+	}
+
+	// Write kubeconfig once (shared by both Cluster structs).
+	kubeconfig, err := container.GetKubeConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("get kubeconfig: %v", err)
+	}
+	kubeconfigPath, err := writeKubeconfig(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("write kubeconfig: %v", err)
+	}
+	fmt.Printf("Created temp kubeconfig file: %s\n", kubeconfigPath)
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		return fmt.Errorf("get container host: %v", err)
+	}
+
+	// Build Cluster structs (same container, different ports).
+	sharedTraefik, err = newCluster("traefik", container, kubeconfigPath, host, "traefik", "app.kubernetes.io/name=traefik", "80/tcp", "443/tcp")
 	if err != nil {
 		return fmt.Errorf("failed to init traefik cluster: %v", err)
 	}
 
-	sharedNginx, err = newCluster("nginx", nginxContainer, "ingress-nginx", "app.kubernetes.io/name=ingress-nginx")
+	sharedNginx, err = newCluster("nginx", container, kubeconfigPath, host, "ingress-nginx", "app.kubernetes.io/name=ingress-nginx", "30080/tcp", "30443/tcp")
 	if err != nil {
 		return fmt.Errorf("failed to init nginx cluster: %v", err)
 	}
 
-	// Deploy nginx IngressClass to the traefik cluster so the kubernetesingressnginx
-	// provider recognizes ingresses with ingressClassName: nginx.
-	if err := sharedTraefik.ApplyFixture("nginx-ingressclass.yaml"); err != nil {
-		return fmt.Errorf("failed to deploy nginx ingressclass to traefik cluster: %v", err)
-	}
-
 	fmt.Println("Waiting for ingress controllers to be ready...")
 
-	// Wait for controllers to be ready.
+	// Wait for both controllers to be ready.
 	if err := waitForDeployment(sharedTraefik, "traefik", "traefik"); err != nil {
 		return fmt.Errorf("traefik controller not ready: %v", err)
 	}
@@ -121,69 +140,76 @@ func initClusters() error {
 
 	fmt.Println("Deploying shared resources...")
 
-	// Deploy whoami backend to both.
+	// Deploy whoami backend (single cluster, deploy once).
 	if err := sharedTraefik.DeploySharedResources(); err != nil {
-		return fmt.Errorf("failed to deploy shared resources to traefik cluster: %v", err)
-	}
-	if err := sharedNginx.DeploySharedResources(); err != nil {
-		return fmt.Errorf("failed to deploy shared resources to nginx cluster: %v", err)
+		return fmt.Errorf("failed to deploy shared resources: %v", err)
 	}
 
 	// Wait for whoami pods to be ready.
 	if err := waitForDeployment(sharedTraefik, testNamespace, "snippet-test-backend"); err != nil {
-		return fmt.Errorf("whoami not ready in traefik cluster: %v", err)
-	}
-	if err := waitForDeployment(sharedNginx, testNamespace, "snippet-test-backend"); err != nil {
-		return fmt.Errorf("whoami not ready in nginx cluster: %v", err)
+		return fmt.Errorf("whoami not ready: %v", err)
 	}
 
-	fmt.Println("Clusters ready.")
+	fmt.Println("Cluster ready.")
 	return nil
 }
 
-func createCluster(ctx context.Context, manifestPath string) (*k3s.K3sContainer, error) {
-	return k3s.Run(ctx, k3sImage,
-		testcontainers.WithExposedPorts("80/tcp", "443/tcp"),
-		k3s.WithManifest(manifestPath),
-	)
-}
-
-func newCluster(name string, container *k3s.K3sContainer, controllerNS, controllerLabel string) (*Cluster, error) {
-	ctx := context.Background()
-
-	kubeconfig, err := container.GetKubeConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get kubeconfig: %w", err)
+func combineManifests(paths ...string) (string, error) {
+	var parts []string
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return "", fmt.Errorf("read manifest %s: %w", p, err)
+		}
+		parts = append(parts, string(data))
 	}
 
-	// Write kubeconfig to temp file.
-	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kubeconfig-%s-*.yaml", name))
-	fmt.Printf("Created temp kubeconfig file: %s\n", tmpFile.Name())
+	tmpFile, err := os.CreateTemp("", "combined-manifests-*.yaml")
 	if err != nil {
-		return nil, fmt.Errorf("create temp kubeconfig: %w", err)
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	if _, err := tmpFile.WriteString(strings.Join(parts, "\n---\n")); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+	tmpFile.Close()
+	return tmpFile.Name(), nil
+}
+
+func writeKubeconfig(kubeconfig []byte) (string, error) {
+	tmpFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("create temp kubeconfig: %w", err)
 	}
 	if _, err := tmpFile.Write(kubeconfig); err != nil {
 		tmpFile.Close()
-		return nil, fmt.Errorf("write kubeconfig: %w", err)
+		return "", fmt.Errorf("write kubeconfig: %w", err)
 	}
 	tmpFile.Close()
+	return tmpFile.Name(), nil
+}
 
-	host, err := container.Host(ctx)
+func newCluster(name string, container *k3s.K3sContainer, kubeconfigPath, host, controllerNS, controllerLabel, httpPort, httpsPort string) (*Cluster, error) {
+	ctx := context.Background()
+
+	port, err := container.MappedPort(ctx, nat.Port(httpPort))
 	if err != nil {
-		return nil, fmt.Errorf("get container host: %w", err)
+		return nil, fmt.Errorf("get mapped HTTP port: %w", err)
 	}
 
-	port, err := container.MappedPort(ctx, "80/tcp")
+	portHTTPS, err := container.MappedPort(ctx, nat.Port(httpsPort))
 	if err != nil {
-		return nil, fmt.Errorf("get mapped port: %w", err)
+		return nil, fmt.Errorf("get mapped HTTPS port: %w", err)
 	}
 
 	return &Cluster{
 		Name:            name,
 		Container:       container,
-		KubeconfigPath:  tmpFile.Name(),
+		KubeconfigPath:  kubeconfigPath,
 		Host:            host,
 		Port:            port.Port(),
+		PortHTTPS:       portHTTPS.Port(),
 		TestNamespace:   testNamespace,
 		ControllerNS:    controllerNS,
 		ControllerLabel: controllerLabel,

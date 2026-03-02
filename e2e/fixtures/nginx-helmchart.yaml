@@ -13,3 +13,7 @@ spec:
       allowSnippetAnnotations: true
       config:
         annotations-risk-level: Critical
+      service:
+        ports:
+          http: 30080
+          https: 30443

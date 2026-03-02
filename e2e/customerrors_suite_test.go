@@ -203,11 +203,11 @@ func (s *CustomErrorsSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/default-backend":    "error-backend",
 	}
 
-	traefikManifest := customErrorsIngressManifest(customErrorsIngressName, customErrorsTraefikHost, customErrorsAnnotations)
+	traefikManifest := customErrorsIngressManifest(s.traefik.IngressName(customErrorsIngressName), customErrorsTraefikHost, customErrorsAnnotations)
 	err := s.traefik.ApplyManifest(traefikManifest)
 	require.NoError(s.T(), err, "deploy custom-errors ingress to traefik cluster")
 
-	nginxManifest := customErrorsIngressManifest(customErrorsIngressName, customErrorsNginxHost, customErrorsAnnotations)
+	nginxManifest := customErrorsIngressManifest(s.nginx.IngressName(customErrorsIngressName), customErrorsNginxHost, customErrorsAnnotations)
 	err = s.nginx.ApplyManifest(nginxManifest)
 	require.NoError(s.T(), err, "deploy custom-errors ingress to nginx cluster")
 
@@ -216,11 +216,11 @@ func (s *CustomErrorsSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/custom-http-errors": "404,503",
 	}
 
-	traefikNoBackendManifest := customErrorsIngressManifest(customErrorsNoBackendIngressName, customErrorsNoBackendTraefikHost, noBackendAnnotations)
+	traefikNoBackendManifest := customErrorsIngressManifest(s.traefik.IngressName(customErrorsNoBackendIngressName), customErrorsNoBackendTraefikHost, noBackendAnnotations)
 	err = s.traefik.ApplyManifest(traefikNoBackendManifest)
 	require.NoError(s.T(), err, "deploy custom-errors-no-backend ingress to traefik cluster")
 
-	nginxNoBackendManifest := customErrorsIngressManifest(customErrorsNoBackendIngressName, customErrorsNoBackendNginxHost, noBackendAnnotations)
+	nginxNoBackendManifest := customErrorsIngressManifest(s.nginx.IngressName(customErrorsNoBackendIngressName), customErrorsNoBackendNginxHost, noBackendAnnotations)
 	err = s.nginx.ApplyManifest(nginxNoBackendManifest)
 	require.NoError(s.T(), err, "deploy custom-errors-no-backend ingress to nginx cluster")
 
