@@ -173,3 +173,15 @@ When you choose to share your report, the following anonymized data is sent:
 | `GET`  | `/`       | Serve the HTML migration report |
 | `PUT`  | `/send`   | Send usage data to Traefik Labs |
 | `PUT`  | `/update` | Update the migration report     |
+
+## E2E Tests
+
+The e2e tests spin up a k3s cluster using [testcontainers](https://golang.testcontainers.org/) and deploy both Traefik and NGINX Ingress controllers to verify annotation compatibility.
+
+### Running
+
+The `TRAEFIK_IMAGE` environment variable is required. It must point to a Traefik image available in your local Docker daemon that includes the `kubernetesIngressNginx` provider:
+
+```bash
+TRAEFIK_IMAGE=traefik/traefik:v100.0.0 cd e2e && go test -v -count=1 -timeout 15m ./...
+```
