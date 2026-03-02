@@ -13,6 +13,8 @@ spec:
       allowSnippetAnnotations: true
       config:
         annotations-risk-level: Critical
+      extraArgs:
+        enable-ssl-passthrough: ""
       service:
         ports:
           http: 30080
