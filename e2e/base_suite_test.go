@@ -47,14 +47,20 @@ func init() {
 	flag.StringVar(&k3sImage, "k3s-image", "rancher/k3s:v1.31.4-k3s1", "K3s container image")
 	flag.StringVar(&testNamespace, "namespace", "default", "Namespace for test resources")
 
-	// TRAEFIK_IMAGE is optional. When set, the image is loaded into the k3s
-	// cluster and the Helm chart is configured to use it. When empty, the
-	// chart uses its default upstream image.
+	// TRAEFIK_IMAGE must be set to a Traefik image that includes the
+	// kubernetesIngressNginx provider. The image is loaded from the local
+	// Docker daemon into the k3s cluster.
 	traefikImage = os.Getenv("TRAEFIK_IMAGE")
 }
 
 func TestMain(m *testing.M) {
 	flag.Parse()
+
+	if traefikImage == "" {
+		fmt.Fprintln(os.Stderr, "TRAEFIK_IMAGE is required (e.g. TRAEFIK_IMAGE=traefik/traefik:v100.0.0)")
+		os.Exit(1)
+	}
+
 	os.Exit(m.Run())
 }
 
@@ -73,15 +79,10 @@ func initClusters() error {
 		return fmt.Errorf("failed to create cluster: %v", err)
 	}
 
-	// When a custom Traefik image is provided, load it into the k3s cluster
-	// so the HelmChart uses it instead of pulling from the registry.
-	if traefikImage != "" {
-		fmt.Printf("Loading image %s into cluster...\n", traefikImage)
-		if err := container.LoadImages(ctx, traefikImage); err != nil {
-			return fmt.Errorf("failed to load traefik image: %v", err)
-		}
-	} else {
-		fmt.Println("No TRAEFIK_IMAGE set, using chart default image")
+	// Load the Traefik image from the local Docker daemon into k3s.
+	fmt.Printf("Loading image %s into cluster...\n", traefikImage)
+	if err := container.LoadImages(ctx, traefikImage); err != nil {
+		return fmt.Errorf("failed to load traefik image: %v", err)
 	}
 
 	// Render and apply the traefik helm chart after the image is loaded,
