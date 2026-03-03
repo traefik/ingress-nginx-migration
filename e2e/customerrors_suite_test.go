@@ -21,153 +21,6 @@ const (
 	customErrorsNoBackendNginxHost   = customErrorsNoBackendIngressName + ".nginx.local"
 )
 
-// statusBackendManifest deploys an nginx backend that returns specific HTTP
-// status codes depending on the request path: 200 on /, 404 on /not-found,
-// and 503 on /unavailable.
-const statusBackendManifest = `apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: status-backend-config
-data:
-  default.conf: |
-    server {
-        listen 80;
-        location / {
-            default_type text/plain;
-            return 200 "status backend OK";
-        }
-        location /not-found {
-            default_type text/plain;
-            return 404 "not found from upstream";
-        }
-        location /unavailable {
-            default_type text/plain;
-            return 503 "service unavailable from upstream";
-        }
-    }
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: status-backend
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: status-backend
-  template:
-    metadata:
-      labels:
-        app: status-backend
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:alpine
-        ports:
-        - containerPort: 80
-        volumeMounts:
-        - name: config
-          mountPath: /etc/nginx/conf.d
-      volumes:
-      - name: config
-        configMap:
-          name: status-backend-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: status-backend
-spec:
-  selector:
-    app: status-backend
-  ports:
-  - port: 80
-    targetPort: 80`
-
-// errorBackendManifest deploys an nginx backend that always returns 200 with
-// the body "custom error page". This is used as the default-backend for
-// custom-http-errors testing.
-const errorBackendManifest = `apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: error-backend-config
-data:
-  default.conf: |
-    server {
-        listen 80;
-        location / {
-            default_type text/plain;
-            return 200 "custom error page";
-        }
-    }
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: error-backend
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: error-backend
-  template:
-    metadata:
-      labels:
-        app: error-backend
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:alpine
-        ports:
-        - containerPort: 80
-        volumeMounts:
-        - name: config
-          mountPath: /etc/nginx/conf.d
-      volumes:
-      - name: config
-        configMap:
-          name: error-backend-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: error-backend
-spec:
-  selector:
-    app: error-backend
-  ports:
-  - port: 80
-    targetPort: 80`
-
-// customErrorsIngressManifest returns an ingress manifest that routes to
-// status-backend and uses the given annotations. Unlike the standard ingress
-// template, this routes to status-backend instead of snippet-test-backend.
-func customErrorsIngressManifest(name, host string, annotations map[string]string) string {
-	ann := ""
-	for k, v := range annotations {
-		ann += fmt.Sprintf("    %s: %q\n", k, v)
-	}
-	return fmt.Sprintf(`apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: %s
-  annotations:
-%sspec:
-  ingressClassName: nginx
-  rules:
-  - host: %s
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: status-backend
-            port:
-              number: 80
-`, name, ann, host)
-}
-
 type CustomErrorsSuite struct {
 	BaseSuite
 }
@@ -181,10 +34,10 @@ func (s *CustomErrorsSuite) SetupSuite() {
 
 	// Deploy status-backend and error-backend to both clusters.
 	for _, cluster := range []*Cluster{s.traefik, s.nginx} {
-		err := cluster.ApplyManifest(statusBackendManifest)
+		err := cluster.ApplyFixture("status-backend.yaml")
 		require.NoError(s.T(), err, "deploy status-backend to %s cluster", cluster.Name)
 
-		err = cluster.ApplyManifest(errorBackendManifest)
+		err = cluster.ApplyFixture("error-backend.yaml")
 		require.NoError(s.T(), err, "deploy error-backend to %s cluster", cluster.Name)
 	}
 
@@ -203,12 +56,20 @@ func (s *CustomErrorsSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/default-backend":    "error-backend",
 	}
 
-	traefikManifest := customErrorsIngressManifest(s.traefik.IngressName(customErrorsIngressName), customErrorsTraefikHost, customErrorsAnnotations)
-	err := s.traefik.ApplyManifest(traefikManifest)
+	err := s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        customErrorsIngressName,
+		Host:        customErrorsTraefikHost,
+		Annotations: customErrorsAnnotations,
+		ServiceName: "status-backend",
+	})
 	require.NoError(s.T(), err, "deploy custom-errors ingress to traefik cluster")
 
-	nginxManifest := customErrorsIngressManifest(s.nginx.IngressName(customErrorsIngressName), customErrorsNginxHost, customErrorsAnnotations)
-	err = s.nginx.ApplyManifest(nginxManifest)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        customErrorsIngressName,
+		Host:        customErrorsNginxHost,
+		Annotations: customErrorsAnnotations,
+		ServiceName: "status-backend",
+	})
 	require.NoError(s.T(), err, "deploy custom-errors ingress to nginx cluster")
 
 	// 2. Ingress with custom-http-errors but no explicit default-backend.
@@ -216,12 +77,20 @@ func (s *CustomErrorsSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/custom-http-errors": "404,503",
 	}
 
-	traefikNoBackendManifest := customErrorsIngressManifest(s.traefik.IngressName(customErrorsNoBackendIngressName), customErrorsNoBackendTraefikHost, noBackendAnnotations)
-	err = s.traefik.ApplyManifest(traefikNoBackendManifest)
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        customErrorsNoBackendIngressName,
+		Host:        customErrorsNoBackendTraefikHost,
+		Annotations: noBackendAnnotations,
+		ServiceName: "status-backend",
+	})
 	require.NoError(s.T(), err, "deploy custom-errors-no-backend ingress to traefik cluster")
 
-	nginxNoBackendManifest := customErrorsIngressManifest(s.nginx.IngressName(customErrorsNoBackendIngressName), customErrorsNoBackendNginxHost, noBackendAnnotations)
-	err = s.nginx.ApplyManifest(nginxNoBackendManifest)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        customErrorsNoBackendIngressName,
+		Host:        customErrorsNoBackendNginxHost,
+		Annotations: noBackendAnnotations,
+		ServiceName: "status-backend",
+	})
 	require.NoError(s.T(), err, "deploy custom-errors-no-backend ingress to nginx cluster")
 
 	s.traefik.WaitForIngressReady(s.T(), customErrorsTraefikHost, 30, 1*time.Second)
@@ -237,12 +106,8 @@ func (s *CustomErrorsSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(customErrorsNoBackendIngressName)
 
 	for _, cluster := range []*Cluster{s.traefik, s.nginx} {
-		_ = cluster.Kubectl("delete", "deployment", "status-backend", "-n", cluster.TestNamespace, "--ignore-not-found")
-		_ = cluster.Kubectl("delete", "service", "status-backend", "-n", cluster.TestNamespace, "--ignore-not-found")
-		_ = cluster.Kubectl("delete", "configmap", "status-backend-config", "-n", cluster.TestNamespace, "--ignore-not-found")
-		_ = cluster.Kubectl("delete", "deployment", "error-backend", "-n", cluster.TestNamespace, "--ignore-not-found")
-		_ = cluster.Kubectl("delete", "service", "error-backend", "-n", cluster.TestNamespace, "--ignore-not-found")
-		_ = cluster.Kubectl("delete", "configmap", "error-backend-config", "-n", cluster.TestNamespace, "--ignore-not-found")
+		_ = cluster.Kubectl("delete", "-f", fmt.Sprintf("%s/status-backend.yaml", fixturesDir), "-n", cluster.TestNamespace, "--ignore-not-found")
+		_ = cluster.Kubectl("delete", "-f", fmt.Sprintf("%s/error-backend.yaml", fixturesDir), "-n", cluster.TestNamespace, "--ignore-not-found")
 	}
 }
 

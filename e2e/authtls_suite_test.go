@@ -13,7 +13,6 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -174,44 +173,21 @@ func (s *AuthTLSSuite) TearDownSuite() {
 func (s *AuthTLSSuite) deployAuthTLSIngress(name, traefikHost, nginxHost string, annotations map[string]string) {
 	s.T().Helper()
 
-	traefikManifest := renderTLSIngressManifest(s.traefik.IngressName(name), traefikHost, authTLSServerTLSSecretName, annotations)
-	err := s.traefik.ApplyManifest(traefikManifest)
+	err := s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        name,
+		Host:        traefikHost,
+		Annotations: annotations,
+		TLSSecret:   authTLSServerTLSSecretName,
+	})
 	require.NoError(s.T(), err, "deploy %s ingress to traefik cluster", name)
 
-	nginxManifest := renderTLSIngressManifest(s.nginx.IngressName(name), nginxHost, authTLSServerTLSSecretName, annotations)
-	err = s.nginx.ApplyManifest(nginxManifest)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        name,
+		Host:        nginxHost,
+		Annotations: annotations,
+		TLSSecret:   authTLSServerTLSSecretName,
+	})
 	require.NoError(s.T(), err, "deploy %s ingress to nginx cluster", name)
-}
-
-// renderTLSIngressManifest renders an ingress YAML manifest with a TLS section.
-func renderTLSIngressManifest(name, host, tlsSecretName string, annotations map[string]string) string {
-	var sb strings.Builder
-	sb.WriteString("apiVersion: networking.k8s.io/v1\n")
-	sb.WriteString("kind: Ingress\n")
-	sb.WriteString("metadata:\n")
-	sb.WriteString("  name: " + name + "\n")
-	sb.WriteString("  annotations:\n")
-	for k, v := range annotations {
-		sb.WriteString(fmt.Sprintf("    %s: %q\n", k, v))
-	}
-	sb.WriteString("spec:\n")
-	sb.WriteString("  ingressClassName: nginx\n")
-	sb.WriteString("  tls:\n")
-	sb.WriteString("  - hosts:\n")
-	sb.WriteString("    - " + host + "\n")
-	sb.WriteString("    secretName: " + tlsSecretName + "\n")
-	sb.WriteString("  rules:\n")
-	sb.WriteString("  - host: " + host + "\n")
-	sb.WriteString("    http:\n")
-	sb.WriteString("      paths:\n")
-	sb.WriteString("      - path: /\n")
-	sb.WriteString("        pathType: Prefix\n")
-	sb.WriteString("        backend:\n")
-	sb.WriteString("          service:\n")
-	sb.WriteString("            name: snippet-test-backend\n")
-	sb.WriteString("            port:\n")
-	sb.WriteString("              number: 80\n")
-	return sb.String()
 }
 
 // makeTLSRequest makes an HTTPS request to the given cluster endpoint with optional client certificate.

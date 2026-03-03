@@ -13,6 +13,12 @@ metadata:
 {{- end }}
 spec:
   ingressClassName: nginx
+{{- if .TLSSecret }}
+  tls:
+  - hosts:
+    - {{ .Host }}
+    secretName: {{ .TLSSecret }}
+{{- end }}
   rules:
   - host: {{ .Host }}
     http:
@@ -21,6 +27,6 @@ spec:
         pathType: {{ .PathType }}
         backend:
           service:
-            name: snippet-test-backend
+            name: {{ .ServiceName }}
             port:
-              number: 80
+              number: {{ .ServicePort }}

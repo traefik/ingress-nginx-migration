@@ -306,6 +306,15 @@ type ingressTemplateData struct {
 	Path        string
 	PathType    string
 	Annotations map[string]string
+	ServiceName string // default: "snippet-test-backend"
+	ServicePort int    // default: 80
+	TLSSecret   string // if non-empty, adds spec.tls section
+}
+
+type nginxBackendTemplateData struct {
+	Name          string
+	ConfigMapName string
+	TLSSecretName string
 }
 
 type secretTemplateData struct {
@@ -362,6 +371,12 @@ func renderIngressManifest(data ingressTemplateData) (string, error) {
 	}
 	if data.PathType == "" {
 		data.PathType = "Prefix"
+	}
+	if data.ServiceName == "" {
+		data.ServiceName = "snippet-test-backend"
+	}
+	if data.ServicePort == 0 {
+		data.ServicePort = 80
 	}
 
 	// Clean annotation values.

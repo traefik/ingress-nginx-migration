@@ -107,6 +107,15 @@ func (c *Cluster) DeployConfigMap(data configMapTemplateData) error {
 	return c.ApplyManifest(manifest)
 }
 
+// DeployNginxBackend deploys an nginx-based HTTPS backend (Deployment + Service).
+func (c *Cluster) DeployNginxBackend(data nginxBackendTemplateData) error {
+	manifest, err := renderManifest("nginx-backend.yaml.tmpl", data)
+	if err != nil {
+		return err
+	}
+	return c.ApplyManifest(manifest)
+}
+
 // DeleteSecret deletes a secret resource.
 func (c *Cluster) DeleteSecret(name string) error {
 	return c.Kubectl("delete", "secret", name, "-n", c.TestNamespace, "--ignore-not-found")

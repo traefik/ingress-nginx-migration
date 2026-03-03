@@ -225,50 +225,11 @@ func (s *ProxySSLSuite) deployHTTPSBackend() {
 	require.NoError(s.T(), err, "deploy HTTPS backend config")
 
 	// Deploy the HTTPS backend (deployment + service).
-	manifest := `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: https-backend
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: https-backend
-  template:
-    metadata:
-      labels:
-        app: https-backend
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:alpine
-        ports:
-        - containerPort: 443
-        volumeMounts:
-        - name: config
-          mountPath: /etc/nginx/conf.d/
-        - name: certs
-          mountPath: /etc/nginx/certs/
-      volumes:
-      - name: config
-        configMap:
-          name: https-backend-config
-      - name: certs
-        secret:
-          secretName: https-backend-tls
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: https-backend
-spec:
-  selector:
-    app: https-backend
-  ports:
-  - port: 443
-    targetPort: 443
-`
-	err = s.traefik.ApplyManifest(manifest)
+	err = s.traefik.DeployNginxBackend(nginxBackendTemplateData{
+		Name:          httpsBackendName,
+		ConfigMapName: httpsBackendConfigMapName,
+		TLSSecretName: httpsBackendTLSSecretName,
+	})
 	require.NoError(s.T(), err, "deploy HTTPS backend")
 
 	// Wait for the backend to be ready.
@@ -280,12 +241,22 @@ spec:
 func (s *ProxySSLSuite) deployProxySSLIngress(name, traefikHost, nginxHost string, annotations map[string]string) {
 	s.T().Helper()
 
-	traefikManifest := renderHTTPSBackendIngressCustom(s.traefik.IngressName(name), traefikHost, httpsBackendName, 443, annotations)
-	err := s.traefik.ApplyManifest(traefikManifest)
+	err := s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        name,
+		Host:        traefikHost,
+		Annotations: annotations,
+		ServiceName: httpsBackendName,
+		ServicePort: 443,
+	})
 	require.NoError(s.T(), err, "deploy %s ingress to traefik cluster", name)
 
-	nginxManifest := renderHTTPSBackendIngressCustom(s.nginx.IngressName(name), nginxHost, httpsBackendName, 443, annotations)
-	err = s.nginx.ApplyManifest(nginxManifest)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        name,
+		Host:        nginxHost,
+		Annotations: annotations,
+		ServiceName: httpsBackendName,
+		ServicePort: 443,
+	})
 	require.NoError(s.T(), err, "deploy %s ingress to nginx cluster", name)
 }
 

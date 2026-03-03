@@ -13,7 +13,6 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -74,22 +73,22 @@ func (s *SSLPassthroughSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/ssl-passthrough": "true",
 	}
 
-	traefikManifest := renderHTTPSBackendIngressCustom(
-		s.traefik.IngressName(sslPassthroughIngressName),
-		sslPassthroughTraefikHost,
-		passthroughBackendName, 443,
-		annotations,
-	)
-	err = s.traefik.ApplyManifest(traefikManifest)
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        sslPassthroughIngressName,
+		Host:        sslPassthroughTraefikHost,
+		Annotations: annotations,
+		ServiceName: passthroughBackendName,
+		ServicePort: 443,
+	})
 	require.NoError(s.T(), err, "deploy ssl-passthrough ingress to traefik cluster")
 
-	nginxManifest := renderHTTPSBackendIngressCustom(
-		s.nginx.IngressName(sslPassthroughIngressName),
-		sslPassthroughNginxHost,
-		passthroughBackendName, 443,
-		annotations,
-	)
-	err = s.nginx.ApplyManifest(nginxManifest)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        sslPassthroughIngressName,
+		Host:        sslPassthroughNginxHost,
+		Annotations: annotations,
+		ServiceName: passthroughBackendName,
+		ServicePort: 443,
+	})
 	require.NoError(s.T(), err, "deploy ssl-passthrough ingress to nginx cluster")
 
 	// Give the controllers time to pick up the passthrough config.
@@ -144,50 +143,11 @@ func (s *SSLPassthroughSuite) deployPassthroughBackend() {
 	require.NoError(s.T(), err, "deploy passthrough backend config")
 
 	// Deploy the backend (deployment + service).
-	manifest := `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: passthrough-backend
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: passthrough-backend
-  template:
-    metadata:
-      labels:
-        app: passthrough-backend
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:alpine
-        ports:
-        - containerPort: 443
-        volumeMounts:
-        - name: config
-          mountPath: /etc/nginx/conf.d/
-        - name: certs
-          mountPath: /etc/nginx/certs/
-      volumes:
-      - name: config
-        configMap:
-          name: passthrough-backend-config
-      - name: certs
-        secret:
-          secretName: passthrough-backend-tls
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: passthrough-backend
-spec:
-  selector:
-    app: passthrough-backend
-  ports:
-  - port: 443
-    targetPort: 443
-`
-	err = s.traefik.ApplyManifest(manifest)
+	err = s.traefik.DeployNginxBackend(nginxBackendTemplateData{
+		Name:          passthroughBackendName,
+		ConfigMapName: passthroughBackendConfigMapName,
+		TLSSecretName: passthroughBackendTLSSecretName,
+	})
 	require.NoError(s.T(), err, "deploy passthrough backend")
 
 	err = waitForDeployment(s.traefik, testNamespace, passthroughBackendName)
@@ -256,32 +216,6 @@ func makePassthroughTLSRequest(t *testing.T, hostPort, sniHost string, maxRetrie
 
 	t.Logf("passthrough TLS request to %s (sni=%s) failed after %d retries: %v", hostPort, sniHost, maxRetries, lastErr)
 	return nil, ""
-}
-
-// renderHTTPSBackendIngressCustom renders an ingress YAML pointing to a custom backend service and port.
-func renderHTTPSBackendIngressCustom(name, host, serviceName string, servicePort int, annotations map[string]string) string {
-	var sb strings.Builder
-	sb.WriteString("apiVersion: networking.k8s.io/v1\n")
-	sb.WriteString("kind: Ingress\n")
-	sb.WriteString("metadata:\n")
-	sb.WriteString("  name: " + name + "\n")
-	sb.WriteString("  annotations:\n")
-	for k, v := range annotations {
-		sb.WriteString(fmt.Sprintf("    %s: %q\n", k, v))
-	}
-	sb.WriteString("spec:\n")
-	sb.WriteString("  ingressClassName: nginx\n")
-	sb.WriteString("  rules:\n")
-	sb.WriteString("  - host: " + host + "\n")
-	sb.WriteString("    http:\n")
-	sb.WriteString("      paths:\n")
-	sb.WriteString("      - path: /\n")
-	sb.WriteString("        pathType: Prefix\n")
-	sb.WriteString("        backend:\n")
-	sb.WriteString("          service:\n")
-	sb.WriteString(fmt.Sprintf("            name: %s\n", serviceName))
-	sb.WriteString(fmt.Sprintf("            port:\n              number: %d\n", servicePort))
-	return sb.String()
 }
 
 // --- Certificate generation ---
