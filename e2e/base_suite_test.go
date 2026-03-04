@@ -33,6 +33,7 @@ var (
 	traefikImage  string
 	testNamespace string
 	fixturesDir   string
+	reuseCluster  = os.Getenv("E2E_REUSE_CLUSTER") == "true"
 
 	clusterOnce    sync.Once
 	clusterInitErr error
@@ -67,42 +68,26 @@ func TestMain(m *testing.M) {
 func initClusters() error {
 	ctx := context.Background()
 
-	fmt.Printf("Creating k3s cluster with image: %s\n", k3sImage)
-
-	// Create a single k3s cluster with the nginx helm chart auto-deployed.
-	// Traefik listens on ports 80/443, nginx on 30080/30443.
-	container, err := k3s.Run(ctx, k3sImage,
+	opts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithExposedPorts("80/tcp", "443/tcp", "30080/tcp", "30443/tcp"),
 		k3s.WithManifest(filepath.Join(fixturesDir, "nginx-helmchart.yaml")),
-	)
+	}
+
+	if reuseCluster {
+		// Prevent Ryuk from cleaning up the container on process exit.
+		os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+		opts = append(opts, testcontainers.WithReuseByName("e2e-k3s-cluster"))
+		fmt.Println("Cluster reuse enabled (E2E_REUSE_CLUSTER=true)")
+	}
+
+	fmt.Printf("Creating k3s cluster with image: %s\n", k3sImage)
+
+	container, err := k3s.Run(ctx, k3sImage, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create cluster: %v", err)
 	}
 
-	// Load the Traefik image from the local Docker daemon into k3s.
-	fmt.Printf("Loading image %s into cluster...\n", traefikImage)
-	if err := container.LoadImages(ctx, traefikImage); err != nil {
-		return fmt.Errorf("failed to load traefik image: %v", err)
-	}
-
-	// Render and apply the traefik helm chart after the image is loaded,
-	// so k3s can find the image when the HelmChart controller starts.
-	traefikManifestPath, err := renderTraefikHelmChart(traefikImage)
-	if err != nil {
-		return fmt.Errorf("failed to render traefik helm chart: %v", err)
-	}
-	defer os.Remove(traefikManifestPath)
-
-	traefikManifest, err := os.ReadFile(traefikManifestPath)
-	if err != nil {
-		return fmt.Errorf("failed to read traefik manifest: %v", err)
-	}
-
-	if err := container.CopyToContainer(ctx, traefikManifest, "/var/lib/rancher/k3s/server/manifests/traefik-helmchart.yaml", 0o644); err != nil {
-		return fmt.Errorf("failed to copy traefik manifest: %v", err)
-	}
-
-	// Write kubeconfig once (shared by both Cluster structs).
+	// Write kubeconfig (always needed — temp file is ephemeral across runs).
 	kubeconfig, err := container.GetKubeConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("get kubeconfig: %v", err)
@@ -129,6 +114,36 @@ func initClusters() error {
 		return fmt.Errorf("failed to init nginx cluster: %v", err)
 	}
 
+	// If reusing an already-provisioned cluster, skip setup.
+	if reuseCluster && isClusterReady(sharedTraefik) {
+		fmt.Println("Reusing existing cluster — skipping setup.")
+		fmt.Println("Note: Traefik image is NOT reloaded on reuse. Run `docker rm -f e2e-k3s-cluster` to force a fresh cluster.")
+		return nil
+	}
+
+	// Fresh cluster: load image, deploy charts, wait for readiness.
+	fmt.Printf("Loading image %s into cluster...\n", traefikImage)
+	if err := container.LoadImages(ctx, traefikImage); err != nil {
+		return fmt.Errorf("failed to load traefik image: %v", err)
+	}
+
+	// Render and apply the traefik helm chart after the image is loaded,
+	// so k3s can find the image when the HelmChart controller starts.
+	traefikManifestPath, err := renderTraefikHelmChart(traefikImage)
+	if err != nil {
+		return fmt.Errorf("failed to render traefik helm chart: %v", err)
+	}
+	defer os.Remove(traefikManifestPath)
+
+	traefikManifest, err := os.ReadFile(traefikManifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read traefik manifest: %v", err)
+	}
+
+	if err := container.CopyToContainer(ctx, traefikManifest, "/var/lib/rancher/k3s/server/manifests/traefik-helmchart.yaml", 0o644); err != nil {
+		return fmt.Errorf("failed to copy traefik manifest: %v", err)
+	}
+
 	fmt.Println("Waiting for ingress controllers to be ready...")
 
 	// Wait for both controllers to be ready.
@@ -153,6 +168,13 @@ func initClusters() error {
 
 	fmt.Println("Cluster ready.")
 	return nil
+}
+
+// isClusterReady checks whether the cluster is already provisioned by
+// verifying the traefik controller deployment exists.
+func isClusterReady(c *Cluster) bool {
+	return c.Kubectl("get", "deployment", "traefik",
+		"-n", "traefik", "-o", "name") == nil
 }
 
 func combineManifests(paths ...string) (string, error) {
