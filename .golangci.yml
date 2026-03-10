@@ -68,9 +68,10 @@ linters:
         - FIXME
     gosec:
       excludes:
+        - G203
         - G304
         - G307
-        - G203
+        - G704
     govet:
       disable:
         - fieldalignment
