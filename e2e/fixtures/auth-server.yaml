@@ -9,6 +9,9 @@ data:
         location / {
             add_header X-Auth-User "authenticated-user" always;
             add_header X-Auth-Role "admin" always;
+            add_header Set-Cookie "session=auth" always;
+            add_header X-From-Request $http_x_from_request always;
+            add_header X-Request-Method $request_method always;
             return 200 "auth ok";
         }
         location /deny {
@@ -31,17 +34,17 @@ spec:
         app: auth-server
     spec:
       containers:
-      - name: nginx
-        image: nginx:alpine
-        ports:
-        - containerPort: 80
-        volumeMounts:
-        - name: config
-          mountPath: /etc/nginx/conf.d
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/conf.d
       volumes:
-      - name: config
-        configMap:
-          name: auth-server-config
+        - name: config
+          configMap:
+            name: auth-server-config
 ---
 apiVersion: v1
 kind: Service
@@ -51,5 +54,5 @@ spec:
   selector:
     app: auth-server
   ports:
-  - port: 80
-    targetPort: 80
+    - port: 80
+      targetPort: 80

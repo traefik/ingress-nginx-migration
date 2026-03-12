@@ -114,6 +114,11 @@ func (s *ForwardAuthSuite) SetupSuite() {
 }
 
 func (s *ForwardAuthSuite) TearDownSuite() {
+	if s.T().Failed() {
+		s.T().Log(s.traefik.GetIngressControllerLogs(500))
+		s.T().Log(s.nginx.GetIngressControllerLogs(500))
+	}
+
 	_ = s.traefik.DeleteIngress(forwardAuthIngressName)
 	_ = s.nginx.DeleteIngress(forwardAuthIngressName)
 	_ = s.traefik.DeleteIngress(forwardAuthDenyIngressName)
@@ -282,4 +287,237 @@ func (s *ForwardAuthSuite) TestAuthSigninRedirectsOnSubpath() {
 		"traefik Location header should contain the auth-signin host on subpath")
 	assert.Contains(s.T(), nginxLocation, "login.example.com",
 		"nginx Location header should contain the auth-signin host on subpath")
+}
+
+func (s *ForwardAuthSuite) TestSnippet() {
+	hostTraefik := "auth-snippet.traefik.local"
+	hostNginx := "auth-snippet.nginx.local"
+	annotations := map[string]string{
+		"nginx.ingress.kubernetes.io/auth-url":              authServerServiceURL + "/",
+		"nginx.ingress.kubernetes.io/auth-snippet":          "proxy_set_header X-From-Request \"Ok\";",
+		"nginx.ingress.kubernetes.io/auth-response-headers": "X-From-Request",
+	}
+
+	err := s.traefik.DeployIngress("test-auth-snippet-traefik", hostTraefik, annotations)
+	require.NoError(s.T(), err, "deploy forward-auth-snippet ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress("test-auth-snippet-nginx", hostNginx, annotations)
+	require.NoError(s.T(), err, "deploy forward-auth-snippet ingress to nginx cluster")
+
+	s.T().Cleanup(func() {
+		_ = s.traefik.DeleteIngress("test-auth-snippet-traefik")
+		_ = s.nginx.DeleteIngress("test-auth-snippet-nginx")
+	})
+
+	s.traefik.WaitForIngressReady(s.T(), hostTraefik, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), hostNginx, 20, 1*time.Second)
+
+	traefikResp := s.traefik.MakeRequest(s.T(), hostTraefik, http.MethodGet, "/protected/resource", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp := s.nginx.MakeRequest(s.T(), hostNginx, http.MethodGet, "/protected/resource", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+
+	assert.Equal(s.T(), traefikResp.RequestHeaders["X-From-Request"], "Ok")
+	assert.Equal(s.T(), nginxResp.RequestHeaders["X-From-Request"], "Ok")
+}
+
+func (s *ForwardAuthSuite) TestAuthSnippet() {
+	testCases := []struct {
+		desc        string
+		annotations map[string]string
+		test        func(t *testing.T, hostTraefik, hostNginx string)
+	}{
+		{
+			desc: "empty proxy_method",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/auth-url":              authServerServiceURL + "/",
+				"nginx.ingress.kubernetes.io/auth-response-headers": "X-Request-Method",
+			},
+			test: func(t *testing.T, hostTraefik, hostNginx string) {
+				t.Helper()
+
+				traefikResp := s.traefik.MakeRequest(t, hostTraefik, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, traefikResp, "traefik response should not be nil")
+
+				nginxResp := s.nginx.MakeRequest(t, hostNginx, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, nginxResp, "nginx response should not be nil")
+
+				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+
+				assert.Equal(t, http.MethodGet, traefikResp.RequestHeaders["X-Request-Method"], "traefik response header mismatch")
+				assert.Equal(t, http.MethodGet, nginxResp.RequestHeaders["X-Request-Method"], "nginx response header mismatch")
+
+			},
+		},
+		{
+			desc: "proxy_method",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/auth-url":              authServerServiceURL + "/",
+				"nginx.ingress.kubernetes.io/auth-snippet":          "proxy_method \"PUT\";",
+				"nginx.ingress.kubernetes.io/auth-response-headers": "X-Request-Method",
+			},
+			test: func(t *testing.T, hostTraefik, hostNginx string) {
+				t.Helper()
+
+				traefikResp := s.traefik.MakeRequest(t, hostTraefik, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, traefikResp, "traefik response should not be nil")
+
+				nginxResp := s.nginx.MakeRequest(t, hostNginx, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, nginxResp, "nginx response should not be nil")
+
+				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+
+				assert.Equal(t, http.MethodPut, traefikResp.RequestHeaders["X-Request-Method"], "traefik response header mismatch")
+				assert.Equal(t, http.MethodPut, nginxResp.RequestHeaders["X-Request-Method"], "nginx response header mismatch")
+
+			},
+		},
+		{
+			desc: "proxy_method inherited",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/auth-url":              authServerServiceURL + "/",
+				"nginx.ingress.kubernetes.io/auth-snippet":          "proxy_method $request_method;",
+				"nginx.ingress.kubernetes.io/auth-response-headers": "X-Request-Method",
+			},
+			test: func(t *testing.T, hostTraefik, hostNginx string) {
+				t.Helper()
+
+				traefikResp := s.traefik.MakeRequest(t, hostTraefik, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, traefikResp, "traefik response should not be nil")
+
+				nginxResp := s.nginx.MakeRequest(t, hostNginx, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, nginxResp, "nginx response should not be nil")
+
+				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+
+				assert.Equal(t, http.MethodPost, traefikResp.RequestHeaders["X-Request-Method"], "traefik response header mismatch")
+				assert.Equal(t, http.MethodPost, nginxResp.RequestHeaders["X-Request-Method"], "nginx response header mismatch")
+			},
+		},
+		{
+			desc: "proxy_method pass",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/auth-url":              authServerServiceURL + "/",
+				"nginx.ingress.kubernetes.io/auth-snippet":          "proxy_method $var;\nset $var \"PUT\";",
+				"nginx.ingress.kubernetes.io/auth-response-headers": "X-Request-Method",
+			},
+			test: func(t *testing.T, hostTraefik, hostNginx string) {
+				t.Helper()
+
+				traefikResp := s.traefik.MakeRequest(t, hostTraefik, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, traefikResp, "traefik response should not be nil")
+
+				nginxResp := s.nginx.MakeRequest(t, hostNginx, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, nginxResp, "nginx response should not be nil")
+
+				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+
+				assert.Equal(t, http.MethodPut, traefikResp.RequestHeaders["X-Request-Method"], "traefik response header mismatch")
+				assert.Equal(t, http.MethodPut, nginxResp.RequestHeaders["X-Request-Method"], "nginx response header mismatch")
+			},
+		},
+		{
+			desc: "proxy_method with if",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/auth-url":              authServerServiceURL + "/",
+				"nginx.ingress.kubernetes.io/auth-snippet":          "if ($request_method = GET) { \nreturn 200;}\nproxy_method $request_method;",
+				"nginx.ingress.kubernetes.io/auth-response-headers": "X-Request-Method",
+			},
+			test: func(t *testing.T, hostTraefik, hostNginx string) {
+				t.Helper()
+
+				traefikResp := s.traefik.MakeRequest(t, hostTraefik, http.MethodGet, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, traefikResp, "traefik response should not be nil")
+
+				nginxResp := s.nginx.MakeRequest(t, hostNginx, http.MethodGet, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, nginxResp, "nginx response should not be nil")
+
+				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+
+				assert.Equal(t, "", traefikResp.RequestHeaders["X-Request-Method"], "traefik response header mismatch")
+				assert.Equal(t, "", nginxResp.RequestHeaders["X-Request-Method"], "nginx response header mismatch")
+
+				traefikResp = s.traefik.MakeRequest(t, hostTraefik, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, traefikResp, "traefik response should not be nil")
+
+				nginxResp = s.nginx.MakeRequest(t, hostNginx, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, nginxResp, "nginx response should not be nil")
+
+				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+
+				assert.Equal(t, http.MethodPost, traefikResp.RequestHeaders["X-Request-Method"], "traefik response header mismatch")
+				assert.Equal(t, http.MethodPost, nginxResp.RequestHeaders["X-Request-Method"], "nginx response header mismatch")
+			},
+		},
+		{
+			desc: "proxy_method with if and 401",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/auth-url":              authServerServiceURL + "/",
+				"nginx.ingress.kubernetes.io/auth-snippet":          "if ($request_method = GET) { \nreturn 401;}\nproxy_method $request_method;",
+				"nginx.ingress.kubernetes.io/auth-response-headers": "X-Request-Method",
+			},
+			test: func(t *testing.T, hostTraefik, hostNginx string) {
+				t.Helper()
+
+				traefikResp := s.traefik.MakeRequest(t, hostTraefik, http.MethodGet, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, traefikResp, "traefik response should not be nil")
+
+				nginxResp := s.nginx.MakeRequest(t, hostNginx, http.MethodGet, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, nginxResp, "nginx response should not be nil")
+
+				assert.Equal(t, http.StatusUnauthorized, traefikResp.StatusCode, "traefik status code mismatch")
+				assert.Equal(t, http.StatusUnauthorized, nginxResp.StatusCode, "traefik status code mismatch")
+
+				assert.Equal(t, "", traefikResp.RequestHeaders["X-Request-Method"], "traefik request header mismatch")
+				assert.Equal(t, "", nginxResp.RequestHeaders["X-Request-Method"], "nginx request header mismatch")
+
+				traefikResp = s.traefik.MakeRequest(t, hostTraefik, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, traefikResp, "traefik response should not be nil")
+
+				nginxResp = s.nginx.MakeRequest(t, hostNginx, http.MethodPost, "/protected/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, nginxResp, "nginx response should not be nil")
+
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "traefik status code mismatch")
+				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "nginx status code mismatch")
+
+				assert.Equal(t, http.MethodPost, traefikResp.RequestHeaders["X-Request-Method"], "traefik request header mismatch")
+				assert.Equal(t, http.MethodPost, nginxResp.RequestHeaders["X-Request-Method"], "nginx request header mismatch")
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		s.T().Run(test.desc, func(t *testing.T) {
+			t.Parallel()
+			prefix := sanitizeName(test.desc)
+			hostTraefik := prefix + ".traefik.local"
+			hostNginx := prefix + ".nginx.local"
+
+			err := s.traefik.DeployIngress(prefix, hostTraefik, test.annotations)
+			require.NoError(s.T(), err, "deploy %s ingress to traefik cluster", prefix)
+
+			err = s.nginx.DeployIngress(prefix, hostNginx, test.annotations)
+			require.NoError(s.T(), err, "deploy %s ingress to nginx cluster", prefix)
+
+			s.T().Cleanup(func() {
+				_ = s.traefik.DeleteIngress(prefix)
+				_ = s.nginx.DeleteIngress(prefix)
+			})
+
+			s.traefik.WaitForIngressReady(s.T(), hostTraefik, 20, 1*time.Second)
+			s.nginx.WaitForIngressReady(s.T(), hostNginx, 20, 1*time.Second)
+
+			test.test(s.T(), hostTraefik, hostNginx)
+		})
+	}
 }

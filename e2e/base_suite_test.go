@@ -70,6 +70,7 @@ func initClusters() error {
 
 	opts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithExposedPorts("80/tcp", "443/tcp", "30080/tcp", "30443/tcp"),
+		testcontainers.WithName("cluster"),
 		k3s.WithManifest(filepath.Join(fixturesDir, "nginx-helmchart.yaml")),
 	}
 
