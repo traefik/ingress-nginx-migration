@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -124,10 +125,10 @@ var supportedAnnotations = map[string]string{
 	"nginx.ingress.kubernetes.io/canary-weight":            "v3.7",
 	"nginx.ingress.kubernetes.io/canary-weight-total":      "v3.7",
 	// ModSecurity (Traefik Hub only).
-	"nginx.ingress.kubernetes.io/enable-modsecurity":         "Hub v3.20",
-	"nginx.ingress.kubernetes.io/enable-owasp-core-rules":    "Hub v3.20",
-	"nginx.ingress.kubernetes.io/modsecurity-transaction-id": "Hub v3.20",
-	"nginx.ingress.kubernetes.io/modsecurity-snippet":        "Hub v3.20",
+	"nginx.ingress.kubernetes.io/enable-modsecurity":         "Traefik Hub v3.20",
+	"nginx.ingress.kubernetes.io/enable-owasp-core-rules":    "Traefik Hub v3.20",
+	"nginx.ingress.kubernetes.io/modsecurity-transaction-id": "Traefik Hub v3.20",
+	"nginx.ingress.kubernetes.io/modsecurity-snippet":        "Traefik Hub v3.20",
 }
 
 // AnnotationInfo contains annotation name and its minimum required Traefik version.
@@ -182,6 +183,7 @@ type Report struct {
 	// Version-specific breakdown of compatible ingresses (only those with nginx annotations).
 	CompatibleV36IngressCount int `json:"compatibleV36IngressCount"`
 	CompatibleV37IngressCount int `json:"compatibleV37IngressCount"`
+	CompatibleHubIngressCount int `json:"compatibleHubIngressCount"`
 }
 
 func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses []*netv1.Ingress) Report {
@@ -221,36 +223,20 @@ func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses
 		ingReport := computeIngressReport(ing)
 
 		// Merge supported annotations into report-level map.
-		for ann, ver := range ingReport.SupportedAnnotations {
-			allSupportedAnnotations[ann] = ver
-		}
+		maps.Copy(allSupportedAnnotations, ingReport.SupportedAnnotations)
 
 		// Ingress is compatible
 		if len(ingReport.UnsupportedAnnotations) == 0 {
 			report.CompatibleIngressCount++
 
-			if ingReport.HasNginxAnnotation {
-				report.SupportedIngressCount++
-
-				// Determine version requirement for this ingress.
-				requiresV37 := false
-				for _, ver := range ingReport.SupportedAnnotations {
-					if ver == "v3.7" {
-						requiresV37 = true
-						break
-					}
-				}
-				if requiresV37 {
-					report.CompatibleV37IngressCount++
-				} else {
-					report.CompatibleV36IngressCount++
-				}
-
+			if !ingReport.HasNginxAnnotation {
+				report.VanillaIngressCount++
+				report.CompatibleV36IngressCount++
 				continue
 			}
 
-			report.VanillaIngressCount++
-			report.CompatibleV36IngressCount++
+			report.SupportedIngressCount++
+			report.classifyIngressVersion(ingReport.SupportedAnnotations)
 			continue
 		}
 
@@ -294,6 +280,28 @@ type reportHashPayload struct {
 	SupportedIngressCount         int            `json:"supportedIngressCount"`
 	UnsupportedIngressCount       int            `json:"unsupportedIngressCount"`
 	UnsupportedIngressAnnotations map[string]int `json:"unsupportedIngressAnnotations"`
+}
+
+func (r *Report) classifyIngressVersion(supportedAnnotations map[string]string) {
+	var requiresHub, requiresV37 bool
+
+	for _, ver := range supportedAnnotations {
+		switch ver {
+		case "Traefik Hub":
+			requiresHub = true
+		case "v3.7":
+			requiresV37 = true
+		}
+	}
+
+	switch {
+	case requiresHub:
+		r.CompatibleHubIngressCount++
+	case requiresV37:
+		r.CompatibleV37IngressCount++
+	default:
+		r.CompatibleV36IngressCount++
+	}
 }
 
 func computeReportHash(report Report) string {
