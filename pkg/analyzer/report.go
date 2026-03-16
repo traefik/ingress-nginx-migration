@@ -48,7 +48,8 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/temporal-redirect-code":  {},
 	"nginx.ingress.kubernetes.io/from-to-www-redirect":    {},
 	// Session affinity.
-	"nginx.ingress.kubernetes.io/affinity":                {},
+	"nginx.ingress.kubernetes.io/affinity":                  {},
+	"nginx.ingress.kubernetes.io/affinity-canary-behavior": {},
 	"nginx.ingress.kubernetes.io/session-cookie-name":     {},
 	"nginx.ingress.kubernetes.io/session-cookie-secure":   {},
 	"nginx.ingress.kubernetes.io/session-cookie-path":     {},
@@ -120,6 +121,11 @@ var supportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/canary-by-header-pattern": {},
 	"nginx.ingress.kubernetes.io/canary-weight":            {},
 	"nginx.ingress.kubernetes.io/canary-weight-total":      {},
+	// ModSecurity (Traefik Hub only).
+	"nginx.ingress.kubernetes.io/enable-modsecurity":        {},
+	"nginx.ingress.kubernetes.io/enable-owasp-core-rules":   {},
+	"nginx.ingress.kubernetes.io/modsecurity-transaction-id": {},
+	"nginx.ingress.kubernetes.io/modsecurity-snippet":       {},
 }
 
 // IngressReport contains the analysis report for a single Ingress.

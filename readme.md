@@ -34,6 +34,7 @@ The Ingress NGINX Migration checks for compatibility with common Ingress NGINX C
 - IP allowlisting (`whitelist-source-range`, `allowlist-source-range`)
 - Custom headers (`custom-headers`, `upstream-vhost`)
 - Buffering (`proxy-request-buffering`, `proxy-body-size`, `proxy-buffering`, etc.)
+- ModSecurity (`enable-modsecurity`, `enable-owasp-core-rules`, `modsecurity-transaction-id`, `modsecurity-snippet`) — Traefik Hub only
 
 For a complete list of supported annotations and their Traefik equivalents, see the [Ingress NGINX Annotations table](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress-nginx/#annotations-support) in the Traefik documentation.
 
