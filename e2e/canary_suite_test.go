@@ -84,7 +84,7 @@ func isCanaryBackend(resp *Response) bool {
 }
 
 func isProductionBackend(resp *Response) bool {
-	return strings.HasPrefix(resp.RequestHeaders["Hostname"], "snippet-test-backend")
+	return strings.HasPrefix(resp.RequestHeaders["Hostname"], "backend")
 }
 
 func (s *CanarySuite) SetupSuite() {

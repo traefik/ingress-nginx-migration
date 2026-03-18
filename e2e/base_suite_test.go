@@ -163,7 +163,7 @@ func initClusters() error {
 	}
 
 	// Wait for whoami pods to be ready.
-	if err := waitForDeployment(sharedTraefik, testNamespace, "snippet-test-backend"); err != nil {
+	if err := waitForDeployment(sharedTraefik, testNamespace, "backend"); err != nil {
 		return fmt.Errorf("whoami not ready: %v", err)
 	}
 
@@ -329,7 +329,7 @@ type ingressTemplateData struct {
 	Path        string
 	PathType    string
 	Annotations map[string]string
-	ServiceName string // default: "snippet-test-backend"
+	ServiceName string // default: "backend"
 	ServicePort int    // default: 80
 	TLSSecret   string // if non-empty, adds spec.tls section
 }
@@ -396,7 +396,7 @@ func renderIngressManifest(data ingressTemplateData) (string, error) {
 		data.PathType = "Prefix"
 	}
 	if data.ServiceName == "" {
-		data.ServiceName = "snippet-test-backend"
+		data.ServiceName = "backend"
 	}
 	if data.ServicePort == 0 {
 		data.ServicePort = 80

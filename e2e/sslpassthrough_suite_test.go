@@ -26,6 +26,10 @@ const (
 	sslPassthroughTraefikHost = sslPassthroughIngressName + ".traefik.local"
 	sslPassthroughNginxHost   = sslPassthroughIngressName + ".nginx.local"
 
+	sslPassthroughCertIngressName = "ssl-passthrough-cert-test"
+	sslPassthroughCertTraefikHost = sslPassthroughCertIngressName + ".traefik.local"
+	sslPassthroughCertNginxHost   = sslPassthroughCertIngressName + ".nginx.local"
+
 	passthroughBackendName          = "passthrough-backend"
 	passthroughBackendConfigMapName = "passthrough-backend-config"
 	passthroughBackendTLSSecretName = "passthrough-backend-tls"
@@ -73,6 +77,7 @@ func (s *SSLPassthroughSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/ssl-passthrough": "true",
 	}
 
+	// 1. ssl-passthrough test
 	err = s.traefik.DeployIngressWith(ingressTemplateData{
 		Name:        sslPassthroughIngressName,
 		Host:        sslPassthroughTraefikHost,
@@ -85,6 +90,30 @@ func (s *SSLPassthroughSuite) SetupSuite() {
 	err = s.nginx.DeployIngressWith(ingressTemplateData{
 		Name:        sslPassthroughIngressName,
 		Host:        sslPassthroughNginxHost,
+		Annotations: annotations,
+		ServiceName: passthroughBackendName,
+		ServicePort: 443,
+	})
+	require.NoError(s.T(), err, "deploy ssl-passthrough ingress to nginx cluster")
+
+	// 2. ssl-passthrough cert issue
+	annotations = map[string]string{
+		"nginx.ingress.kubernetes.io/ssl-passthrough":    "true",
+		"nginx.ingress.kubernetes.io/force-ssl-redirect": "true",
+		"nginx.ingress.kubernetes.io/backend-protocol":   "HTTPS",
+	}
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        sslPassthroughCertIngressName,
+		Host:        sslPassthroughCertTraefikHost,
+		Annotations: annotations,
+		ServiceName: passthroughBackendName,
+		ServicePort: 443,
+	})
+	require.NoError(s.T(), err, "deploy ssl-passthrough ingress to traefik cluster")
+
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        sslPassthroughCertIngressName,
+		Host:        sslPassthroughCertNginxHost,
 		Annotations: annotations,
 		ServiceName: passthroughBackendName,
 		ServicePort: 443,
@@ -307,4 +336,34 @@ func (s *SSLPassthroughSuite) TestSSLPassthroughResponseBody() {
 		"traefik: response body should come from the passthrough backend")
 	assert.Contains(s.T(), nginxResp.Body, "passthrough-backend-ok",
 		"nginx: response body should come from the passthrough backend")
+}
+
+// This test reproduces a setup with these annotations.
+// The TLS cert should be the backend's one, not the ingress controller's one.
+//
+// "nginx.ingress.kubernetes.io/ssl-passthrough":    "true",
+// "nginx.ingress.kubernetes.io/force-ssl-redirect": "true",
+// "nginx.ingress.kubernetes.io/backend-protocol":   "HTTPS",
+func (s *SSLPassthroughSuite) TestSSLPassthroughCertificateWithAnnotations() {
+	// The key assertion: the TLS certificate CN should be from the backend,
+	// not the ingress controller. This proves the TLS was NOT terminated by the controller.
+	traefikResp, traefikCN := makePassthroughTLSRequest(s.T(), s.traefikHTTPS, sslPassthroughCertTraefikHost, 10, 2*time.Second)
+	nginxResp, nginxCN := makePassthroughTLSRequest(s.T(), s.nginxHTTPS, sslPassthroughCertNginxHost, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), passthroughBackendCN, traefikCN,
+		"traefik: TLS certificate CN should be from the backend (passthrough)")
+	assert.Equal(s.T(), passthroughBackendCN, nginxCN,
+		"nginx: TLS certificate CN should be from the backend (passthrough)")
+
+	traefikResp = s.traefik.MakeRequest(s.T(), sslPassthroughCertTraefikHost, http.MethodGet, "/", nil, 10, 2*time.Second)
+	nginxResp = s.nginx.MakeRequest(s.T(), sslPassthroughCertNginxHost, http.MethodGet, "/", nil, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), http.StatusPermanentRedirect, traefikResp.StatusCode, "traefik: should be redirected to HTTPS URL")
+	assert.Equal(s.T(), http.StatusPermanentRedirect, nginxResp.StatusCode, "nginx: should be redirected to HTTPS URL")
 }

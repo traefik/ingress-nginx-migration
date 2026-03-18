@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -139,8 +140,8 @@ func (c *Cluster) DeploySharedResources() error {
 
 // CleanupSharedResources removes the whoami backend.
 func (c *Cluster) CleanupSharedResources() {
-	_ = c.Kubectl("delete", "deployment", "snippet-test-backend", "-n", c.TestNamespace, "--ignore-not-found")
-	_ = c.Kubectl("delete", "service", "snippet-test-backend", "-n", c.TestNamespace, "--ignore-not-found")
+	_ = c.Kubectl("delete", "deployment", "backend", "-n", c.TestNamespace, "--ignore-not-found")
+	_ = c.Kubectl("delete", "service", "backend", "-n", c.TestNamespace, "--ignore-not-found")
 }
 
 // WaitForIngressReady waits until the ingress controller starts routing for the given host
@@ -226,6 +227,69 @@ func (c *Cluster) MakeRequest(t *testing.T, host, method, path string, headers m
 	}
 
 	t.Logf("[%s] request failed after %d retries: %v", c.Name, maxRetries, lastErr)
+	return nil
+}
+
+// makeTLSRequest makes an HTTPS request to the given cluster endpoint with optional client certificate.
+// It returns the parsed Response or nil on failure.
+func (c *Cluster) MakeTLSRequest(t *testing.T, host, method, path string, headers map[string]string, clientCert *tls.Certificate, maxRetries int, delay time.Duration) *Response {
+	t.Helper()
+	hostPort := fmt.Sprintf("%s:%s", c.Host, c.PortHTTPS)
+	url := fmt.Sprintf("https://%s%s", hostPort, path)
+
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         host,
+	}
+	if clientCert != nil {
+		tlsConfig.Certificates = []tls.Certificate{*clientCert}
+	}
+
+	client := &http.Client{
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	var lastErr error
+	for range maxRetries {
+		req, err := http.NewRequest(method, url, nil)
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+		req.Host = host
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+
+		return &Response{
+			StatusCode:      resp.StatusCode,
+			Body:            string(body),
+			ResponseHeaders: resp.Header,
+			RequestHeaders:  parseWhoamiHeaders(string(body)),
+		}
+	}
+
+	t.Logf("TLS request to %s (host=%s) failed after %d retries: %v", hostPort, host, maxRetries, lastErr)
 	return nil
 }
 

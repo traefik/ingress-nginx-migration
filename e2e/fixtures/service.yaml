@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: snippet-test-backend
+  name: backend
 spec:
   selector:
-    app: snippet-test-backend
+    app: backend
   ports:
-  - port: 80
-    targetPort: 80
+    - port: 80
+      targetPort: 80
