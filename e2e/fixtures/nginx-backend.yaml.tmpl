@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Name }}
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 443
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d/
+        - name: certs
+          mountPath: /etc/nginx/certs/
+      volumes:
+      - name: config
+        configMap:
+          name: {{ .ConfigMapName }}
+      - name: certs
+        secret:
+          secretName: {{ .TLSSecretName }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Name }}
+spec:
+  selector:
+    app: {{ .Name }}
+  ports:
+  - port: 443
+    targetPort: 443

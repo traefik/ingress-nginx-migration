@@ -1,0 +1,21 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: ingress-nginx
+  namespace: kube-system
+spec:
+  repo: https://kubernetes.github.io/ingress-nginx
+  chart: ingress-nginx
+  targetNamespace: ingress-nginx
+  createNamespace: true
+  valuesContent: |-
+    controller:
+      allowSnippetAnnotations: true
+      config:
+        annotations-risk-level: Critical
+      extraArgs:
+        enable-ssl-passthrough: ""
+      service:
+        ports:
+          http: 30080
+          https: 30443

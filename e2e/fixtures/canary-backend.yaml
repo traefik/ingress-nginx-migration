@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canary-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: canary-backend
+  template:
+    metadata:
+      labels:
+        app: canary-backend
+    spec:
+      containers:
+      - name: whoami
+        image: traefik/whoami:latest
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canary-backend
+spec:
+  selector:
+    app: canary-backend
+  ports:
+  - port: 80
+    targetPort: 80

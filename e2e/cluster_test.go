@@ -1,0 +1,309 @@
+package e2e
+
+import (
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net/http"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/testcontainers/testcontainers-go/modules/k3s"
+)
+
+// Cluster represents a k3s cluster with an ingress controller.
+type Cluster struct {
+	Name            string
+	Container       *k3s.K3sContainer
+	KubeconfigPath  string
+	Host            string
+	Port            string
+	PortHTTPS       string
+	TestNamespace   string
+	ControllerNS    string
+	ControllerLabel string
+}
+
+// IngressName returns the ingress name prefixed with the cluster name.
+// This avoids name collisions when both controllers run in the same cluster.
+func (c *Cluster) IngressName(name string) string {
+	return c.Name + "-" + name
+}
+
+// Response holds the parsed HTTP response from a cluster.
+type Response struct {
+	StatusCode      int
+	Body            string
+	ResponseHeaders http.Header
+	RequestHeaders  map[string]string // parsed from whoami body
+}
+
+// Kubectl runs a kubectl command against this cluster.
+func (c *Cluster) Kubectl(args ...string) error {
+	fullArgs := append([]string{"--kubeconfig", c.KubeconfigPath}, args...)
+	return runCommand("kubectl", fullArgs...)
+}
+
+// ApplyManifest applies a YAML manifest via stdin.
+func (c *Cluster) ApplyManifest(manifest string) error {
+	cmd := exec.Command("kubectl", "--kubeconfig", c.KubeconfigPath, "apply", "-f", "-", "-n", c.TestNamespace)
+	cmd.Stdin = strings.NewReader(manifest)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("kubectl apply failed: %v, output: %s", err, string(output))
+	}
+	return nil
+}
+
+// ApplyFixture applies a fixture file from the fixtures directory.
+func (c *Cluster) ApplyFixture(filename string) error {
+	fixturePath := filepath.Join(fixturesDir, filename)
+	return c.Kubectl("apply", "-f", fixturePath, "-n", c.TestNamespace)
+}
+
+// DeployIngress deploys an ingress resource with the given annotations.
+func (c *Cluster) DeployIngress(name, host string, annotations map[string]string) error {
+	return c.DeployIngressWith(ingressTemplateData{
+		Name:        name,
+		Host:        host,
+		Annotations: annotations,
+	})
+}
+
+// DeployIngressWith deploys an ingress resource with full control over all template fields.
+// The ingress name is automatically prefixed with the cluster name to avoid collisions.
+func (c *Cluster) DeployIngressWith(data ingressTemplateData) error {
+	data.Name = c.IngressName(data.Name)
+	manifest, err := renderIngressManifest(data)
+	if err != nil {
+		return err
+	}
+	return c.ApplyManifest(manifest)
+}
+
+// DeleteIngress deletes an ingress resource.
+// The name is automatically prefixed with the cluster name.
+func (c *Cluster) DeleteIngress(name string) error {
+	return c.Kubectl("delete", "ingress", c.IngressName(name), "-n", c.TestNamespace, "--ignore-not-found")
+}
+
+// DeploySecret deploys a secret resource.
+func (c *Cluster) DeploySecret(data secretTemplateData) error {
+	manifest, err := renderSecretManifest(data)
+	if err != nil {
+		return err
+	}
+	return c.ApplyManifest(manifest)
+}
+
+// DeployConfigMap deploys a configmap resource.
+func (c *Cluster) DeployConfigMap(data configMapTemplateData) error {
+	manifest, err := renderConfigMapManifest(data)
+	if err != nil {
+		return err
+	}
+	return c.ApplyManifest(manifest)
+}
+
+// DeployNginxBackend deploys an nginx-based HTTPS backend (Deployment + Service).
+func (c *Cluster) DeployNginxBackend(data nginxBackendTemplateData) error {
+	manifest, err := renderManifest("nginx-backend.yaml.tmpl", data)
+	if err != nil {
+		return err
+	}
+	return c.ApplyManifest(manifest)
+}
+
+// DeleteSecret deletes a secret resource.
+func (c *Cluster) DeleteSecret(name string) error {
+	return c.Kubectl("delete", "secret", name, "-n", c.TestNamespace, "--ignore-not-found")
+}
+
+// DeleteConfigMap deletes a configmap resource.
+func (c *Cluster) DeleteConfigMap(name string) error {
+	return c.Kubectl("delete", "configmap", name, "-n", c.TestNamespace, "--ignore-not-found")
+}
+
+// DeploySharedResources deploys the whoami backend.
+func (c *Cluster) DeploySharedResources() error {
+	if err := c.ApplyFixture("deployment.yaml"); err != nil {
+		return fmt.Errorf("failed to deploy deployment: %w", err)
+	}
+	if err := c.ApplyFixture("service.yaml"); err != nil {
+		return fmt.Errorf("failed to deploy service: %w", err)
+	}
+	return nil
+}
+
+// CleanupSharedResources removes the whoami backend.
+func (c *Cluster) CleanupSharedResources() {
+	_ = c.Kubectl("delete", "deployment", "backend", "-n", c.TestNamespace, "--ignore-not-found")
+	_ = c.Kubectl("delete", "service", "backend", "-n", c.TestNamespace, "--ignore-not-found")
+}
+
+// WaitForIngressReady waits until the ingress controller starts routing for the given host
+// by polling GET / until a non-404/non-502 response is received.
+func (c *Cluster) WaitForIngressReady(t *testing.T, host string, maxRetries int, delay time.Duration) {
+	t.Helper()
+
+	url := fmt.Sprintf("http://%s:%s/", c.Host, c.Port)
+	client := &http.Client{
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			time.Sleep(delay)
+			continue
+		}
+		req.Host = host
+
+		resp, err := client.Do(req)
+		if err != nil {
+			time.Sleep(delay)
+			continue
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusBadGateway {
+			return
+		}
+		time.Sleep(delay)
+	}
+	t.Logf("[%s] ingress for host %s not ready after %d retries", c.Name, host, maxRetries)
+}
+
+// MakeRequest makes an HTTP request to this cluster's ingress controller.
+// Retries only on connection errors, not on HTTP status codes.
+func (c *Cluster) MakeRequest(t *testing.T, host, method, path string, headers map[string]string, maxRetries int, delay time.Duration) *Response {
+	t.Helper()
+
+	url := fmt.Sprintf("http://%s:%s%s", c.Host, c.Port, path)
+
+	client := &http.Client{
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		req, err := http.NewRequest(method, url, nil)
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+		req.Host = host
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+
+		return &Response{
+			StatusCode:      resp.StatusCode,
+			Body:            string(body),
+			ResponseHeaders: resp.Header,
+			RequestHeaders:  parseWhoamiHeaders(string(body)),
+		}
+	}
+
+	t.Logf("[%s] request failed after %d retries: %v", c.Name, maxRetries, lastErr)
+	return nil
+}
+
+// makeTLSRequest makes an HTTPS request to the given cluster endpoint with optional client certificate.
+// It returns the parsed Response or nil on failure.
+func (c *Cluster) MakeTLSRequest(t *testing.T, host, method, path string, headers map[string]string, clientCert *tls.Certificate, maxRetries int, delay time.Duration) *Response {
+	t.Helper()
+	hostPort := fmt.Sprintf("%s:%s", c.Host, c.PortHTTPS)
+	url := fmt.Sprintf("https://%s%s", hostPort, path)
+
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         host,
+	}
+	if clientCert != nil {
+		tlsConfig.Certificates = []tls.Certificate{*clientCert}
+	}
+
+	client := &http.Client{
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	var lastErr error
+	for range maxRetries {
+		req, err := http.NewRequest(method, url, nil)
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+		req.Host = host
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			time.Sleep(delay)
+			continue
+		}
+
+		return &Response{
+			StatusCode:      resp.StatusCode,
+			Body:            string(body),
+			ResponseHeaders: resp.Header,
+			RequestHeaders:  parseWhoamiHeaders(string(body)),
+		}
+	}
+
+	t.Logf("TLS request to %s (host=%s) failed after %d retries: %v", hostPort, host, maxRetries, lastErr)
+	return nil
+}
+
+// GetIngressControllerLogs retrieves recent logs from the ingress controller.
+func (c *Cluster) GetIngressControllerLogs(lines int) string {
+	cmd := exec.Command("kubectl", "--kubeconfig", c.KubeconfigPath, "logs",
+		"-l", c.ControllerLabel,
+		"-n", c.ControllerNS,
+		"--tail", fmt.Sprintf("%d", lines),
+		"--all-containers=true",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("failed to get logs: %v\noutput: %s", err, string(output))
+	}
+	return string(output)
+}

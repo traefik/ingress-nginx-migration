@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Name }}
+  annotations:
+{{- range $key, $value := .Annotations }}
+{{- if multiline $value }}
+    {{ $key }}: |
+{{ $value | indent 6 }}
+{{- else }}
+    {{ $key }}: {{ $value | quote }}
+{{- end }}
+{{- end }}
+spec:
+  ingressClassName: nginx
+{{- if .TLSSecret }}
+  tls:
+  - hosts:
+    - {{ .Host }}
+    secretName: {{ .TLSSecret }}
+{{- end }}
+  rules:
+  - host: {{ .Host }}
+    http:
+      paths:
+      - path: {{ .Path }}
+        pathType: {{ .PathType }}
+        backend:
+          service:
+            name: {{ .ServiceName }}
+            port:
+              number: {{ .ServicePort }}

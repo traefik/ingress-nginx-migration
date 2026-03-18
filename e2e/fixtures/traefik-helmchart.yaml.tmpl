@@ -1,0 +1,34 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  repo: https://traefik.github.io/charts
+  chart: traefik
+  targetNamespace: traefik
+  createNamespace: true
+  valuesContent: |-
+{{- if .HasImage }}
+    image:
+      registry: {{ .Registry }}
+      repository: {{ .Repository }}
+      tag: "{{ .Tag }}"
+      pullPolicy: IfNotPresent
+{{- end }}
+    logs:
+      general:
+        level: DEBUG
+    providers:
+      kubernetesIngressNginx:
+        enabled: true
+    ingressRoute:
+      dashboard:
+        enabled: true
+        matchRule: Host(`dashboard.localhost`)
+        entryPoints: ["web"]
+    additionalArguments:
+      - --providers.kubernetesIngressNginx.allowSnippetAnnotations
+      - --providers.kubernetesIngressNginx.proxyBuffering=true
+      - --providers.kubernetesIngressNginx.proxyRequestBuffering=true
+      - --providers.kubernetesIngressNginx.globalAllowedResponseHeaders=X-Custom-Resp,X-Frame-Options,X-More-Resp

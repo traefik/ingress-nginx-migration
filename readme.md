@@ -173,3 +173,36 @@ When you choose to share your report, the following anonymized data is sent:
 | `GET`  | `/`       | Serve the HTML migration report |
 | `PUT`  | `/send`   | Send usage data to Traefik Labs |
 | `PUT`  | `/update` | Update the migration report     |
+
+## E2E Tests
+
+The e2e tests spin up a k3s cluster using [testcontainers](https://golang.testcontainers.org/) and deploy both Traefik and NGINX Ingress controllers to verify annotation compatibility.
+
+### Running
+
+The `TRAEFIK_IMAGE` environment variable is required. It must point to a Traefik image available in your local Docker daemon that includes the `kubernetesIngressNginx` provider:
+
+```bash
+TRAEFIK_IMAGE=traefik/traefik:v100.0.0 make e2e-test
+```
+
+### Reusing the k3s Cluster
+
+Creating the k3s cluster from scratch takes ~60-90s. Set `E2E_REUSE_CLUSTER=true` to keep the cluster running between test runs:
+
+```bash
+# First run creates the cluster (~90s):
+E2E_REUSE_CLUSTER=true TRAEFIK_IMAGE=traefik/traefik:v100.0.0 make e2e-test
+
+# Subsequent runs reuse it (~20s):
+E2E_REUSE_CLUSTER=true TRAEFIK_IMAGE=traefik/traefik:v100.0.0 make e2e-test
+```
+
+To force a fresh cluster (e.g. after changing `TRAEFIK_IMAGE`):
+
+```bash
+docker rm -f e2e-k3s-cluster
+```
+
+> [!NOTE]
+> The Traefik image is **not** reloaded when reusing the cluster. If you change `TRAEFIK_IMAGE`, remove the container first.
