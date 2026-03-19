@@ -986,8 +986,8 @@
                                         <td>
                                             {{if .SupportedAnnotations}}
                                             <ul class="annotation-list">
-                                                {{range $ann, $ver := .SupportedAnnotations}}
-                                                <li>{{$ann}} <span class="badge-{{if eq $ver "v3.6"}}v36{{else if eq $ver "Traefik Hub"}}hub{{else}}v37{{end}}">{{$ver}}</span></li>
+                                                {{range .SupportedAnnotations}}
+                                                <li>{{.Name}} <span class="badge-{{if eq .Version "v3.6"}}v36{{else if hasPrefix .Version "Traefik Hub"}}hub{{else}}v37{{end}}">{{.Version}}</span></li>
                                                 {{end}}
                                             </ul>
                                             {{else}}
@@ -1055,7 +1055,7 @@
                                 {{range .SupportedIngressAnnotations}}
                                 <tr>
                                     <td><span class="annotation-badge">{{.Name}}</span></td>
-                                    <td><span class="badge-{{if eq .Version "v3.6"}}v36{{else if eq .Version "Traefik Hub"}}hub{{else}}v37{{end}}">{{.Version}}</span></td>
+                                    <td><span class="badge-{{if eq .Version "v3.6"}}v36{{else if hasPrefix .Version "Traefik Hub"}}hub{{else}}v37{{end}}">{{.Version}}</span></td>
                                 </tr>
                                 {{end}}
                             </tbody>

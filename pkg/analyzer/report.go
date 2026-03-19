@@ -1,11 +1,11 @@
 package analyzer
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"maps"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -143,7 +143,7 @@ type IngressReport struct {
 	Namespace              string            `json:"namespace"`
 	IngressClassName       string            `json:"ingressClassName"`
 	UnsupportedAnnotations []string          `json:"unsupportedAnnotations"`
-	SupportedAnnotations   map[string]string `json:"supportedAnnotations,omitempty"`
+	SupportedAnnotations   []AnnotationInfo  `json:"supportedAnnotations,omitempty"`
 	HasNginxAnnotation     bool              `json:"-"`
 }
 
@@ -223,7 +223,9 @@ func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses
 		ingReport := computeIngressReport(ing)
 
 		// Merge supported annotations into report-level map.
-		maps.Copy(allSupportedAnnotations, ingReport.SupportedAnnotations)
+		for _, ann := range ingReport.SupportedAnnotations {
+			allSupportedAnnotations[ann.Name] = ann.Version
+		}
 
 		// Ingress is compatible
 		if len(ingReport.UnsupportedAnnotations) == 0 {
@@ -253,8 +255,8 @@ func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses
 	for ann, ver := range allSupportedAnnotations {
 		report.SupportedIngressAnnotations = append(report.SupportedIngressAnnotations, AnnotationInfo{Name: ann, Version: ver})
 	}
-	sort.Slice(report.SupportedIngressAnnotations, func(i, j int) bool {
-		return report.SupportedIngressAnnotations[i].Name < report.SupportedIngressAnnotations[j].Name
+	slices.SortFunc(report.SupportedIngressAnnotations, func(a, b AnnotationInfo) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	// Calculate percentages
@@ -273,23 +275,27 @@ func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses
 
 // reportHashPayload contains fields used to compute the report hash (excludes GenerationDate).
 type reportHashPayload struct {
-	Version                       string         `json:"version"`
-	IngressCount                  int            `json:"ingressCount"`
-	CompatibleIngressCount        int            `json:"compatibleIngressCount"`
-	VanillaIngressCount           int            `json:"vanillaIngressCount"`
-	SupportedIngressCount         int            `json:"supportedIngressCount"`
-	UnsupportedIngressCount       int            `json:"unsupportedIngressCount"`
-	UnsupportedIngressAnnotations map[string]int `json:"unsupportedIngressAnnotations"`
+	Version                       string           `json:"version"`
+	IngressCount                  int              `json:"ingressCount"`
+	CompatibleIngressCount        int              `json:"compatibleIngressCount"`
+	VanillaIngressCount           int              `json:"vanillaIngressCount"`
+	SupportedIngressCount         int              `json:"supportedIngressCount"`
+	UnsupportedIngressCount       int              `json:"unsupportedIngressCount"`
+	UnsupportedIngressAnnotations map[string]int   `json:"unsupportedIngressAnnotations"`
+	SupportedIngressAnnotations   []AnnotationInfo `json:"supportedIngressAnnotations"`
+	CompatibleV36IngressCount     int              `json:"compatibleV36IngressCount"`
+	CompatibleV37IngressCount     int              `json:"compatibleV37IngressCount"`
+	CompatibleHubIngressCount     int              `json:"compatibleHubIngressCount"`
 }
 
-func (r *Report) classifyIngressVersion(supportedAnnotations map[string]string) {
+func (r *Report) classifyIngressVersion(supportedAnnotations []AnnotationInfo) {
 	var requiresHub, requiresV37 bool
 
-	for _, ver := range supportedAnnotations {
-		switch ver {
-		case "Traefik Hub":
+	for _, ann := range supportedAnnotations {
+		switch {
+		case strings.HasPrefix(ann.Version, "Traefik Hub"):
 			requiresHub = true
-		case "v3.7":
+		case ann.Version == "v3.7":
 			requiresV37 = true
 		}
 	}
@@ -313,6 +319,10 @@ func computeReportHash(report Report) string {
 		SupportedIngressCount:         report.SupportedIngressCount,
 		UnsupportedIngressCount:       report.UnsupportedIngressCount,
 		UnsupportedIngressAnnotations: report.UnsupportedIngressAnnotations,
+		SupportedIngressAnnotations:   report.SupportedIngressAnnotations,
+		CompatibleV36IngressCount:     report.CompatibleV36IngressCount,
+		CompatibleV37IngressCount:     report.CompatibleV37IngressCount,
+		CompatibleHubIngressCount:     report.CompatibleHubIngressCount,
 	}
 
 	data, _ := json.Marshal(payload) //nolint:errchkjson
@@ -324,14 +334,14 @@ func computeReportHash(report Report) string {
 func computeIngressReport(ing *netv1.Ingress) *IngressReport {
 	var hasNginxAnnotation bool
 	var unsupportedAnnotations []string
-	supportedUsed := make(map[string]string)
+	var supported []AnnotationInfo
 
 	for annotation := range ing.Annotations {
 		if strings.HasPrefix(annotation, ingressNginxAnnotationPrefix) {
 			hasNginxAnnotation = true
 			// This is a NGINX ingress annotation
 			if ver, ok := supportedAnnotations[annotation]; ok {
-				supportedUsed[annotation] = ver
+				supported = append(supported, AnnotationInfo{Name: annotation, Version: ver})
 			} else {
 				unsupportedAnnotations = append(unsupportedAnnotations, annotation)
 			}
@@ -339,12 +349,16 @@ func computeIngressReport(ing *netv1.Ingress) *IngressReport {
 		}
 	}
 
+	slices.SortFunc(supported, func(a, b AnnotationInfo) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
 	return &IngressReport{
 		Name:                   ing.Name,
 		Namespace:              ing.Namespace,
 		IngressClassName:       ptr.Deref(ing.Spec.IngressClassName, ""),
 		UnsupportedAnnotations: unsupportedAnnotations,
-		SupportedAnnotations:   supportedUsed,
+		SupportedAnnotations:   supported,
 		HasNginxAnnotation:     hasNginxAnnotation,
 	}
 }
