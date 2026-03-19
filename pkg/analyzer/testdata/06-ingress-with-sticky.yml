@@ -12,6 +12,8 @@ metadata:
     nginx.ingress.kubernetes.io/session-cookie-domain: "foo.localhost"
     nginx.ingress.kubernetes.io/session-cookie-samesite: "None"
     nginx.ingress.kubernetes.io/session-cookie-max-age: "42"
+    # Session cookie expires - Supported since Traefik v3.7
+    nginx.ingress.kubernetes.io/session-cookie-expires: "86400"
 
 spec:
 #  ingressClassName: nginx

@@ -447,6 +447,33 @@
             color: white;
         }
 
+        .badge-v36 {
+            background-color: #10b981;
+            color: white;
+            font-size: var(--font-size-0);
+            padding: 2px 8px;
+            border-radius: var(--radius-1);
+            font-weight: 600;
+        }
+
+        .badge-v37 {
+            background-color: #f59e0b;
+            color: white;
+            font-size: var(--font-size-0);
+            padding: 2px 8px;
+            border-radius: var(--radius-1);
+            font-weight: 600;
+        }
+
+        .badge-hub {
+            background-color: #8b5cf6;
+            color: white;
+            font-size: var(--font-size-0);
+            padding: 2px 8px;
+            border-radius: var(--radius-1);
+            font-weight: 600;
+        }
+
         .annotation-list {
             list-style: none;
             display: flex;
@@ -807,6 +834,25 @@
                             <span class="insight-label">Supported annotations</span>
                             <span class="insight-value">{{.SupportedIngressCount}} ({{printf "%.1f" .SupportedIngressPercentage}}%)</span>
                         </div>
+                        {{if or .CompatibleV36IngressCount .CompatibleV37IngressCount .CompatibleHubIngressCount}}
+                        <div class="insight-item">
+                            <span class="insight-icon">📦</span>
+                            <span class="insight-label">Ready with v3.6</span>
+                            <span class="insight-value">{{.CompatibleV36IngressCount}}</span>
+                        </div>
+                        <div class="insight-item">
+                            <span class="insight-icon">🔜</span>
+                            <span class="insight-label">Requires v3.7</span>
+                            <span class="insight-value">{{.CompatibleV37IngressCount}}</span>
+                        </div>
+                        {{if .CompatibleHubIngressCount}}
+                        <div class="insight-item">
+                            <span class="insight-icon">🏢</span>
+                            <span class="insight-label">Requires Traefik Hub</span>
+                            <span class="insight-value">{{.CompatibleHubIngressCount}}</span>
+                        </div>
+                        {{end}}
+                        {{end}}
                     </div>
                     {{end}}
                 </div>
@@ -845,7 +891,7 @@
         {{end}}
         {{end}}
 
-        {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses}}
+        {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses .SupportedIngressAnnotations}}
         <div class="card card-elevation-1 card-no-padding">
             <div class="tabs">
                 {{if .UnsupportedIngresses}}
@@ -853,6 +899,9 @@
                 {{end}}
                 {{if .UnsupportedIngressAnnotations}}
                 <button class="tab-button {{if not .UnsupportedIngresses}}active{{end}}" onclick="showTab(event, 'annotations')">Unsupported Annotations<span class="tab-badge">{{len .UnsupportedIngressAnnotations}}</span></button>
+                {{end}}
+                {{if .SupportedIngressAnnotations}}
+                <button class="tab-button {{if and (not .UnsupportedIngresses) (not .UnsupportedIngressAnnotations)}}active{{end}}" onclick="showTab(event, 'supported')">Supported Annotations<span class="tab-badge">{{len .SupportedIngressAnnotations}}</span></button>
                 {{end}}
             </div>
 
@@ -922,6 +971,7 @@
                                         <th>Name</th>
                                         <th>Namespace</th>
                                         <th>Ingress class</th>
+                                        <th>Supported annotations</th>
                                         <th>Unsupported annotations</th>
                                     </tr>
                                 </thead>
@@ -933,6 +983,17 @@
                                         <td><strong>{{.Name}}</strong></td>
                                         <td>{{.Namespace}}</td>
                                         <td>{{if .IngressClassName}}{{.IngressClassName}}{{else}}<em>default</em>{{end}}</td>
+                                        <td>
+                                            {{if .SupportedAnnotations}}
+                                            <ul class="annotation-list">
+                                                {{range .SupportedAnnotations}}
+                                                <li>{{.Name}} <span class="badge-{{if eq .Version "v3.6"}}v36{{else if hasPrefix .Version "Traefik Hub"}}hub{{else}}v37{{end}}">{{.Version}}</span></li>
+                                                {{end}}
+                                            </ul>
+                                            {{else}}
+                                            <em>None</em>
+                                            {{end}}
+                                        </td>
                                         <td>
                                             {{if .UnsupportedAnnotations}}
                                             <ul class="annotation-list">
@@ -947,7 +1008,7 @@
                                     </tr>
                                     {{if $first}}
                                     <tr class="send-report-row">
-                                        <td colspan="4">
+                                        <td colspan="5">
                                             <div class="send-report-content">
                                                 <div class="send-report-text">
                                                     <h4>See all {{len $root.UnsupportedIngresses}} ingresses and help improve Traefik</h4>
@@ -972,6 +1033,34 @@
                                 </tbody>
                             </table>
                         </div>
+                </div>
+            </div>
+            {{end}}
+
+            {{if .SupportedIngressAnnotations}}
+            <div id="supported" class="tab-content {{if and (not .UnsupportedIngresses) (not .UnsupportedIngressAnnotations)}}active{{end}}">
+                <div class="section">
+                    <h2>Supported annotations</h2>
+                    <p>The following nginx annotations used in your cluster are supported by Traefik's ingress-nginx provider:</p>
+
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Annotation</th>
+                                    <th>Minimum version</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{range .SupportedIngressAnnotations}}
+                                <tr>
+                                    <td><span class="annotation-badge">{{.Name}}</span></td>
+                                    <td><span class="badge-{{if eq .Version "v3.6"}}v36{{else if hasPrefix .Version "Traefik Hub"}}hub{{else}}v37{{end}}">{{.Version}}</span></td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             {{end}}

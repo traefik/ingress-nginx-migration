@@ -1,0 +1,22 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-server-alias
+  namespace: default
+  annotations:
+    # Server alias - Supported since Traefik v3.7
+    nginx.ingress.kubernetes.io/server-alias: "alias.localhost,alias2.localhost"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: server-alias.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80

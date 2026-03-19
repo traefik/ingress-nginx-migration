@@ -5,12 +5,15 @@ metadata:
   name: ingress-with-proxy-ssl
   namespace: default
   annotations:
+    # Proxy SSL and backend - Supported since Traefik v3.6
+    nginx.ingress.kubernetes.io/service-upstream: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS" # HTTP, HTTPS, AUTO_HTTP, GRPC, GRPCS and FCGI
     nginx.ingress.kubernetes.io/proxy-ssl-secret: "default/ingress-with-proxy-ssl"
     nginx.ingress.kubernetes.io/proxy-ssl-verify: "on"
-    nginx.ingress.kubernetes.io/proxy-ssl-verify-depth: "1"
     nginx.ingress.kubernetes.io/proxy-ssl-server-name: "whoami.localhost"
     nginx.ingress.kubernetes.io/proxy-ssl-name: "whoami.localhost"
+    # Proxy SSL verify depth - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/proxy-ssl-verify-depth: "1"
 
 spec:
 #  ingressClassName: nginx

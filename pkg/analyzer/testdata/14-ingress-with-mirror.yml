@@ -8,7 +8,7 @@ metadata:
     # Traffic mirroring annotations - NOT supported by Traefik
     nginx.ingress.kubernetes.io/mirror-target: "http://whoami-mirror.default.svc.cluster.local"
     nginx.ingress.kubernetes.io/mirror-request-body: "on"
-    nginx.ingress.kubernetes.io/mirror-host: "mirror.localhost"
+    nginx.ingress.kubernetes.io/mirror-uri: "/mirror"
 spec:
   ingressClassName: nginx
   rules:

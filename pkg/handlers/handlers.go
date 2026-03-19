@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -35,7 +36,9 @@ type Handlers struct {
 
 // New creates HTTP handlers.
 func New(analyzr *analyzer.Analyzer, client Client) (*Handlers, error) {
-	reportTmpl, err := template.New("report").Parse(htmlReportTemplate)
+	reportTmpl, err := template.New("report").Funcs(template.FuncMap{
+		"hasPrefix": strings.HasPrefix,
+	}).Parse(htmlReportTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parsing report template: %w", err)
 	}

@@ -1,0 +1,35 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-custom-headers
+  namespace: default
+  annotations:
+    # Custom headers - Supported since Traefik v3.7
+    nginx.ingress.kubernetes.io/custom-headers: "default/custom-response-headers"
+    nginx.ingress.kubernetes.io/upstream-vhost: "backend.internal.example.com"
+    # X-Forwarded-Prefix - Supported since Traefik v3.7
+    nginx.ingress.kubernetes.io/x-forwarded-prefix: "/api"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: custom-headers.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-response-headers
+  namespace: default
+data:
+  X-Custom-Header: "custom-value"
+  X-Frame-Options: "DENY"

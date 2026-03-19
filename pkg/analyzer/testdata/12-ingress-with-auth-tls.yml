@@ -5,12 +5,13 @@ metadata:
   name: ingress-with-auth-tls
   namespace: default
   annotations:
-    # TLS client authentication annotations - NOT supported by Traefik
+    # TLS client authentication - Supported since Traefik v3.7
     nginx.ingress.kubernetes.io/auth-tls-secret: "default/ca-secret"
     nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
+    nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream: "true"
+    # TLS client authentication - NOT supported by Traefik
     nginx.ingress.kubernetes.io/auth-tls-verify-depth: "1"
     nginx.ingress.kubernetes.io/auth-tls-error-page: "https://example.com/error"
-    nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream: "true"
     nginx.ingress.kubernetes.io/auth-tls-match-cn: "*.example.com"
 spec:
   ingressClassName: nginx

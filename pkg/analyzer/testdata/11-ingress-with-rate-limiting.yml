@@ -5,12 +5,10 @@ metadata:
   name: ingress-with-rate-limiting
   namespace: default
   annotations:
-    # Rate limiting annotations - NOT supported by Traefik
-    nginx.ingress.kubernetes.io/rate-limit: "10"
-    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
-    nginx.ingress.kubernetes.io/rate-limit-key: "$binary_remote_addr"
-    nginx.ingress.kubernetes.io/rate-limit-status-code: "429"
-    nginx.ingress.kubernetes.io/rate-limit-exceed-action: "block"
+    # Rate limiting annotations - Supported since Traefik v3.7
+    nginx.ingress.kubernetes.io/limit-rpm: "60"
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    # Connection proxy header - NOT supported by Traefik
     nginx.ingress.kubernetes.io/connection-proxy-header: "keep-alive"
 spec:
   ingressClassName: nginx

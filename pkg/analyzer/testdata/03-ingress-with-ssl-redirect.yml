@@ -22,9 +22,9 @@ spec:
                 port:
                   number: 80
   tls:
-    -  hosts:
+    - hosts:
         - sslredirect.localhost
-       secretName: whoami-tls
+      secretName: whoami-tls
 
 ---
 kind: Ingress
@@ -49,9 +49,9 @@ spec:
                 port:
                   number: 80
   tls:
-    -  hosts:
-         - sslredirect.localhost
-       secretName: whoami-tls
+    - hosts:
+        - withoutsslredirect.localhost
+      secretName: whoami-tls
 
 ---
 kind: Ingress

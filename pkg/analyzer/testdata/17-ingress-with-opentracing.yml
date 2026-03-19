@@ -8,8 +8,7 @@ metadata:
     # OpenTracing annotations - NOT supported by Traefik
     nginx.ingress.kubernetes.io/enable-opentracing: "true"
     nginx.ingress.kubernetes.io/opentracing-operation-name: "HTTP $request_method $uri"
-    nginx.ingress.kubernetes.io/opentracing-location: "true"
-    nginx.ingress.kubernetes.io/opentracing-location-operation-name: "HTTP $request_method $uri"
+    nginx.ingress.kubernetes.io/opentracing-trust-incoming-span: "true"
     nginx.ingress.kubernetes.io/zipkin-collector-host: "zipkin.tracing.svc.cluster.local"
     nginx.ingress.kubernetes.io/zipkin-collector-port: "9411"
     nginx.ingress.kubernetes.io/zipkin-service-name: "nginx"

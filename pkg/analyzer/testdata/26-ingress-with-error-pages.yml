@@ -1,0 +1,23 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-with-error-pages
+  namespace: default
+  annotations:
+    # Error pages - Supported since Traefik v3.7
+    nginx.ingress.kubernetes.io/custom-http-errors: "404,503"
+    nginx.ingress.kubernetes.io/default-backend: "default-error-backend"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: error-pages.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80

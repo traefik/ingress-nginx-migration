@@ -5,9 +5,13 @@ metadata:
   name: ingress-with-forwardauth
   namespace: default
   annotations:
+    # Forward auth - Supported since Traefik v3.6
     nginx.ingress.kubernetes.io/auth-url: "http://whoami.default.svc/"
-    nginx.ingress.kubernetes.io/auth-method: "GET"
     nginx.ingress.kubernetes.io/auth-response-headers: "X-Foo"
+    # Forward auth signin - Supported since Traefik v3.7
+    nginx.ingress.kubernetes.io/auth-signin: "https://login.example.com/oauth2/start"
+    # Forward auth method - NOT supported by Traefik
+    nginx.ingress.kubernetes.io/auth-method: "GET"
 
 spec:
 #  ingressClassName: nginx
