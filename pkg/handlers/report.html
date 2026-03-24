@@ -454,6 +454,7 @@
             padding: 2px 8px;
             border-radius: var(--radius-1);
             font-weight: 600;
+            width: fit-content;
         }
 
         .badge-v37 {
@@ -463,6 +464,7 @@
             padding: 2px 8px;
             border-radius: var(--radius-1);
             font-weight: 600;
+            width: fit-content;
         }
 
         .badge-hub {
@@ -472,6 +474,7 @@
             padding: 2px 8px;
             border-radius: var(--radius-1);
             font-weight: 600;
+            width: fit-content;
         }
 
         .annotation-list {
@@ -483,13 +486,15 @@
         }
 
         .annotation-list li,
-        .annotation-badge {
+        .annotation-badge { 
             background-color: var(--color-bg-body);
             padding: var(--spacing-1) var(--spacing-2);
             border-radius: var(--radius-2);
             font-family: 'SF Mono', Monaco, Inconsolata, 'Roboto Mono', Consolas, 'Courier New', monospace;
             font-size: var(--font-size-2);
             color: var(--color-text-subtle);
+            display: flex;
+            flex-direction: column;
         }
 
         .annotation-badge {
