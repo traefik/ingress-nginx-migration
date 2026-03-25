@@ -323,15 +323,21 @@ func renderTraefikHelmChart(image string) (string, error) {
 	return tmpFile.Name(), nil
 }
 
+type ingressDefaultBackend struct {
+	ServiceName string
+	ServicePort int
+}
+
 type ingressTemplateData struct {
-	Name        string
-	Host        string
-	Path        string
-	PathType    string
-	Annotations map[string]string
-	ServiceName string // default: "backend"
-	ServicePort int    // default: 80
-	TLSSecret   string // if non-empty, adds spec.tls section
+	Name           string
+	Host           string
+	Path           string
+	PathType       string
+	Annotations    map[string]string
+	DefaultBackend *ingressDefaultBackend
+	ServiceName    string // default: "backend"
+	ServicePort    int    // default: 80
+	TLSSecret      string // if non-empty, adds spec.tls section
 }
 
 type nginxBackendTemplateData struct {
