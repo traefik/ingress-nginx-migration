@@ -30,6 +30,14 @@ const (
 	exactPathIngressName = "exact-path-test"
 	exactPathTraefikHost = exactPathIngressName + ".traefik.local"
 	exactPathNginxHost   = exactPathIngressName + ".nginx.local"
+
+	fullPathNoRegexIngressName = "full-path-test"
+	fullPathNoRegexTraefikHost = fullPathNoRegexIngressName + ".traefik.local"
+	fullPathNoRegexNginxHost   = fullPathNoRegexIngressName + ".nginx.local"
+
+	fullPathWithPathRegexIngressName = "full-path-regex-test"
+	fullPathWithPathRegexTraefikHost = fullPathWithPathRegexIngressName + ".traefik.local"
+	fullPathWithPathRegexNginxHost   = fullPathWithPathRegexIngressName + ".nginx.local"
 )
 
 type RewriteTargetSuite struct {
@@ -139,6 +147,47 @@ func (s *RewriteTargetSuite) SetupSuite() {
 	})
 	require.NoError(s.T(), err, "deploy exact-path rewrite ingress to nginx cluster")
 
+	// Full path rewrite ingress: https://bar.example.org/$1 => https://bar.example.org (if no regex in path)
+	fullPathAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/rewrite-target": "https://bar.example.org/$1",
+	}
+
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        fullPathNoRegexIngressName,
+		Host:        fullPathNoRegexTraefikHost,
+		Annotations: fullPathAnnotations,
+		Path:        "/original",
+		PathType:    "Prefix",
+	})
+	require.NoError(s.T(), err, "deploy exact-path rewrite ingress to traefik cluster")
+
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        fullPathNoRegexIngressName,
+		Host:        fullPathNoRegexNginxHost,
+		Annotations: fullPathAnnotations,
+		Path:        "/original",
+		PathType:    "Prefix",
+	})
+	require.NoError(s.T(), err, "deploy exact-path rewrite ingress to nginx cluster")
+
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        fullPathWithPathRegexIngressName,
+		Host:        fullPathWithPathRegexTraefikHost,
+		Annotations: fullPathAnnotations,
+		Path:        "/original/(.*)",
+		PathType:    "ImplementationSpecific",
+	})
+	require.NoError(s.T(), err, "deploy exact-path rewrite ingress to traefik cluster")
+
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        fullPathWithPathRegexIngressName,
+		Host:        fullPathWithPathRegexNginxHost,
+		Annotations: fullPathAnnotations,
+		Path:        "/original/(.*)",
+		PathType:    "ImplementationSpecific",
+	})
+	require.NoError(s.T(), err, "deploy exact-path rewrite ingress to nginx cluster")
+
 	// Wait for ingresses to be ready by polling the actual paths.
 	s.waitForRewriteIngressReady(s.traefik, rewriteTraefikHost, "/app")
 	s.waitForRewriteIngressReady(s.nginx, rewriteNginxHost, "/app")
@@ -150,6 +199,10 @@ func (s *RewriteTargetSuite) SetupSuite() {
 	s.waitForRewriteIngressReady(s.nginx, noRegexNginxHost, "/")
 	s.waitForRewriteIngressReady(s.traefik, exactPathTraefikHost, "/original")
 	s.waitForRewriteIngressReady(s.nginx, exactPathNginxHost, "/original")
+	s.waitForRewriteIngressReady(s.traefik, fullPathNoRegexTraefikHost, "/original")
+	s.waitForRewriteIngressReady(s.nginx, fullPathNoRegexNginxHost, "/original")
+	s.waitForRewriteIngressReady(s.traefik, fullPathWithPathRegexTraefikHost, "/original/health")
+	s.waitForRewriteIngressReady(s.nginx, fullPathWithPathRegexNginxHost, "/original/health")
 }
 
 // waitForRewriteIngressReady polls the given path until the ingress starts routing requests.
@@ -177,6 +230,10 @@ func (s *RewriteTargetSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(noRegexIngressName)
 	_ = s.traefik.DeleteIngress(exactPathIngressName)
 	_ = s.nginx.DeleteIngress(exactPathIngressName)
+	_ = s.traefik.DeleteIngress(fullPathNoRegexIngressName)
+	_ = s.nginx.DeleteIngress(fullPathNoRegexIngressName)
+	_ = s.traefik.DeleteIngress(fullPathWithPathRegexIngressName)
+	_ = s.nginx.DeleteIngress(fullPathWithPathRegexIngressName)
 }
 
 // requestSimple makes the same HTTP request against both clusters using the simple rewrite hosts.
@@ -347,3 +404,78 @@ func (s *RewriteTargetSuite) TestExactPathRewrite() {
 	assert.Contains(s.T(), traefikResp.Body, "GET /rewritten HTTP/1.1", "traefik backend should see URI /rewritten")
 }
 
+func (s *RewriteTargetSuite) TestFullPathRewriteNoRegexPath() {
+	traefikResp := s.traefik.MakeRequest(s.T(), fullPathNoRegexTraefikHost, http.MethodGet, "/original", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp := s.nginx.MakeRequest(s.T(), fullPathNoRegexNginxHost, http.MethodGet, "/original", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
+
+	assert.Equal(s.T(), nginxResp.ResponseHeaders.Get("Location"), "https://bar.example.org/", "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), traefikResp.ResponseHeaders.Get("Location"), "https://bar.example.org/", "traefik backend should redirect to rewrite target full URL")
+
+	traefikResp = s.traefik.MakeRequest(s.T(), fullPathNoRegexTraefikHost, http.MethodGet, "/original/other", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), fullPathNoRegexNginxHost, http.MethodGet, "/original/other", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
+
+	assert.Equal(s.T(), nginxResp.ResponseHeaders.Get("Location"), "https://bar.example.org/", "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), traefikResp.ResponseHeaders.Get("Location"), "https://bar.example.org/", "traefik backend should redirect to rewrite target full URL")
+
+	traefikResp = s.traefik.MakeRequest(s.T(), fullPathNoRegexTraefikHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), fullPathNoRegexNginxHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
+
+	assert.Equal(s.T(), nginxResp.ResponseHeaders.Get("Location"), "https://bar.example.org/", "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), traefikResp.ResponseHeaders.Get("Location"), "https://bar.example.org/", "traefik backend should redirect to rewrite target full URL")
+}
+
+func (s *RewriteTargetSuite) TestFullPathRewriteWithRegexPath() {
+	traefikResp := s.traefik.MakeRequest(s.T(), fullPathWithPathRegexTraefikHost, http.MethodGet, "/original", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp := s.nginx.MakeRequest(s.T(), fullPathWithPathRegexNginxHost, http.MethodGet, "/original", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
+
+	assert.Equal(s.T(), nginxResp.ResponseHeaders.Get("Location"), "https://bar.example.org/", "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), traefikResp.ResponseHeaders.Get("Location"), "https://bar.example.org/", "traefik backend should redirect to rewrite target full URL")
+
+	traefikResp = s.traefik.MakeRequest(s.T(), fullPathWithPathRegexTraefikHost, http.MethodGet, "/original/other", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), fullPathWithPathRegexNginxHost, http.MethodGet, "/original/other", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
+
+	assert.Equal(s.T(), nginxResp.ResponseHeaders.Get("Location"), "https://bar.example.org/other", "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), traefikResp.ResponseHeaders.Get("Location"), "https://bar.example.org/other", "traefik backend should redirect to rewrite target full URL")
+
+	traefikResp = s.traefik.MakeRequest(s.T(), fullPathWithPathRegexTraefikHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), fullPathWithPathRegexNginxHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
+
+	assert.Equal(s.T(), nginxResp.ResponseHeaders.Get("Location"), "https://bar.example.org/a/b/c", "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), traefikResp.ResponseHeaders.Get("Location"), "https://bar.example.org/a/b/c", "traefik backend should redirect to rewrite target full URL")
+}
