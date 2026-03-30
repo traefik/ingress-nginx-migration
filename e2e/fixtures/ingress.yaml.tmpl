@@ -13,6 +13,13 @@ metadata:
 {{- end }}
 spec:
   ingressClassName: nginx
+{{- if .DefaultBackend }}
+  defaultBackend:
+    service:
+      name: {{ .DefaultBackend.ServiceName }}
+      port:
+        number: {{ .DefaultBackend.ServicePort }}
+{{- end }}
 {{- if .TLSSecret }}
   tls:
   - hosts:
