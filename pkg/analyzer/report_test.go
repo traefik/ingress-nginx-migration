@@ -84,7 +84,8 @@ func TestComputeIngressReport(t *testing.T) {
 		name                   string
 		annotations            map[string]string
 		wantSupported          []AnnotationInfo
-		wantUnsupportedCount   int
+		wantUnsupported        []string
+		wantUnknown            []string
 		wantHasNginxAnnotation bool
 	}{
 		{
@@ -104,7 +105,7 @@ func TestComputeIngressReport(t *testing.T) {
 			wantHasNginxAnnotation: true,
 		},
 		{
-			name: "mix of supported and unsupported",
+			name: "known-unsupported annotation is classified as unsupported",
 			annotations: map[string]string{
 				"nginx.ingress.kubernetes.io/ssl-redirect":       "true",
 				"nginx.ingress.kubernetes.io/enable-opentracing": "true",
@@ -112,7 +113,53 @@ func TestComputeIngressReport(t *testing.T) {
 			wantSupported: []AnnotationInfo{
 				{Name: "nginx.ingress.kubernetes.io/ssl-redirect", Version: "v3.6"},
 			},
-			wantUnsupportedCount:   1,
+			wantUnsupported:        []string{"nginx.ingress.kubernetes.io/enable-opentracing"},
+			wantHasNginxAnnotation: true,
+		},
+		{
+			name: "unknown annotation is classified as unknown, not unsupported",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/ssl-redirect":         "true",
+				"nginx.ingress.kubernetes.io/totally-unknown-flag": "true",
+			},
+			wantSupported: []AnnotationInfo{
+				{Name: "nginx.ingress.kubernetes.io/ssl-redirect", Version: "v3.6"},
+			},
+			wantUnknown:            []string{"nginx.ingress.kubernetes.io/totally-unknown-flag"},
+			wantHasNginxAnnotation: true,
+		},
+		{
+			name: "mix of supported, known-unsupported, and unknown annotations",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/ssl-redirect":         "true",
+				"nginx.ingress.kubernetes.io/limit-connections":    "10",
+				"nginx.ingress.kubernetes.io/totally-unknown-flag": "true",
+			},
+			wantSupported: []AnnotationInfo{
+				{Name: "nginx.ingress.kubernetes.io/ssl-redirect", Version: "v3.6"},
+			},
+			wantUnsupported:        []string{"nginx.ingress.kubernetes.io/limit-connections"},
+			wantUnknown:            []string{"nginx.ingress.kubernetes.io/totally-unknown-flag"},
+			wantHasNginxAnnotation: true,
+		},
+		{
+			name: "only known-unsupported annotations",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/denylist-source-range": "192.0.2.0/24",
+				"nginx.ingress.kubernetes.io/limit-connections":      "10",
+			},
+			wantUnsupported: []string{
+				"nginx.ingress.kubernetes.io/denylist-source-range",
+				"nginx.ingress.kubernetes.io/limit-connections",
+			},
+			wantHasNginxAnnotation: true,
+		},
+		{
+			name: "only unknown annotations",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/does-not-exist": "true",
+			},
+			wantUnknown:            []string{"nginx.ingress.kubernetes.io/does-not-exist"},
 			wantHasNginxAnnotation: true,
 		},
 		{
@@ -132,6 +179,30 @@ func TestComputeIngressReport(t *testing.T) {
 				{Name: "nginx.ingress.kubernetes.io/backend-protocol", Version: "v3.6"},
 				{Name: "nginx.ingress.kubernetes.io/force-ssl-redirect", Version: "v3.6"},
 				{Name: "nginx.ingress.kubernetes.io/ssl-redirect", Version: "v3.6"},
+			},
+			wantHasNginxAnnotation: true,
+		},
+		{
+			name: "known-unsupported annotations are sorted by name",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/stream-snippet":        "true",
+				"nginx.ingress.kubernetes.io/denylist-source-range": "192.0.2.0/24",
+			},
+			wantUnsupported: []string{
+				"nginx.ingress.kubernetes.io/denylist-source-range",
+				"nginx.ingress.kubernetes.io/stream-snippet",
+			},
+			wantHasNginxAnnotation: true,
+		},
+		{
+			name: "unknown annotations are sorted by name",
+			annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/zzz-unknown": "true",
+				"nginx.ingress.kubernetes.io/aaa-unknown": "true",
+			},
+			wantUnknown: []string{
+				"nginx.ingress.kubernetes.io/aaa-unknown",
+				"nginx.ingress.kubernetes.io/zzz-unknown",
 			},
 			wantHasNginxAnnotation: true,
 		},
@@ -159,7 +230,94 @@ func TestComputeIngressReport(t *testing.T) {
 			assert.Equal(t, "nginx", report.IngressClassName)
 			assert.Equal(t, tt.wantHasNginxAnnotation, report.HasNginxAnnotation)
 			assert.Equal(t, tt.wantSupported, report.SupportedAnnotations)
-			assert.Len(t, report.UnsupportedAnnotations, tt.wantUnsupportedCount)
+			assert.Equal(t, tt.wantUnsupported, report.UnsupportedAnnotations)
+			assert.Equal(t, tt.wantUnknown, report.UnknownAnnotations)
 		})
 	}
+}
+
+func TestComputeReport_AnnotationClassification(t *testing.T) {
+	t.Parallel()
+
+	a := &Analyzer{
+		ingressClass:    "nginx",
+		controllerClass: "k8s.io/ingress-nginx",
+	}
+
+	ingressClass := &netv1.IngressClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "nginx"},
+		Spec:       netv1.IngressClassSpec{Controller: "k8s.io/ingress-nginx"},
+	}
+
+	makeIngress := func(name string, annotations map[string]string) *netv1.Ingress {
+		className := "nginx"
+		return &netv1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        name,
+				Namespace:   "default",
+				Annotations: annotations,
+			},
+			Spec: netv1.IngressSpec{IngressClassName: &className},
+		}
+	}
+
+	ingresses := []*netv1.Ingress{
+		// Vanilla: no NGINX annotations.
+		makeIngress("vanilla", nil),
+		// Supported only.
+		makeIngress("supported", map[string]string{
+			"nginx.ingress.kubernetes.io/ssl-redirect": "true",
+		}),
+		// Known-unsupported annotation.
+		makeIngress("known-unsupported", map[string]string{
+			"nginx.ingress.kubernetes.io/limit-connections": "10",
+		}),
+		// Unknown annotation.
+		makeIngress("unknown", map[string]string{
+			"nginx.ingress.kubernetes.io/totally-made-up": "true",
+		}),
+		// Mix of unsupported and unknown.
+		makeIngress("mixed", map[string]string{
+			"nginx.ingress.kubernetes.io/limit-connections":    "10",
+			"nginx.ingress.kubernetes.io/totally-made-up":     "true",
+			"nginx.ingress.kubernetes.io/force-ssl-redirect":  "true",
+		}),
+	}
+
+	report := a.computeReport([]*netv1.IngressClass{ingressClass}, ingresses)
+
+	assert.Equal(t, 5, report.IngressCount)
+	assert.Equal(t, 2, report.CompatibleIngressCount, "vanilla + supported should be compatible")
+	assert.Equal(t, 1, report.VanillaIngressCount)
+	assert.Equal(t, 1, report.SupportedIngressCount)
+	assert.Equal(t, 3, report.UnsupportedIngressCount, "known-unsupported + unknown + mixed")
+
+	// Unknown annotation frequencies.
+	assert.Equal(t, map[string]int{
+		"nginx.ingress.kubernetes.io/totally-made-up": 2,
+	}, report.UnknownIngressAnnotations)
+
+	// Known-unsupported annotation frequencies.
+	assert.Equal(t, map[string]int{
+		"nginx.ingress.kubernetes.io/limit-connections": 2,
+	}, report.UnsupportedIngressAnnotations)
+
+	// Verify individual ingress reports carry the right buckets.
+	byName := make(map[string]IngressReport)
+	for _, ir := range report.UnsupportedIngresses {
+		byName[ir.Name] = ir
+	}
+
+	knownUnsupportedReport := byName["known-unsupported"]
+	assert.Equal(t, []string{"nginx.ingress.kubernetes.io/limit-connections"}, knownUnsupportedReport.UnsupportedAnnotations)
+	assert.Empty(t, knownUnsupportedReport.UnknownAnnotations)
+
+	unknownReport := byName["unknown"]
+	assert.Empty(t, unknownReport.UnsupportedAnnotations)
+	assert.Equal(t, []string{"nginx.ingress.kubernetes.io/totally-made-up"}, unknownReport.UnknownAnnotations)
+
+	mixedReport := byName["mixed"]
+	assert.Equal(t, []string{"nginx.ingress.kubernetes.io/limit-connections"}, mixedReport.UnsupportedAnnotations)
+	assert.Equal(t, []string{"nginx.ingress.kubernetes.io/totally-made-up"}, mixedReport.UnknownAnnotations)
+	assert.Len(t, mixedReport.SupportedAnnotations, 1)
 }
