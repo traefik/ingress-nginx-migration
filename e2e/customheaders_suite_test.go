@@ -158,8 +158,41 @@ func (s *CustomHeadersSuite) TestCustomHeaders() {
 
 	for _, tc := range testCases {
 		s.T().Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
 			traefikResp, nginxResp := s.request(tc.method, tc.path, tc.headers)
 			tc.check(t, traefikResp, nginxResp)
 		})
 	}
+}
+
+func (s *CustomHeadersSuite) TestWrongConfigMap() {
+	wrongCMIngressName := "custom-headers-wrong-cm"
+	wrongCMHost := wrongCMIngressName + ".traefik.local"
+	wrongCMNginxHost := wrongCMIngressName + ".nginx.local"
+
+	wrongCMAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/custom-headers": fmt.Sprintf("%s/%s", s.traefik.TestNamespace, "non-existent-configmap"),
+	}
+
+	err := s.traefik.DeployIngress(wrongCMIngressName, wrongCMHost, wrongCMAnnotations)
+	require.NoError(s.T(), err, "deploy wrong-cm ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(wrongCMIngressName, wrongCMNginxHost, wrongCMAnnotations)
+	require.NoError(s.T(), err, "deploy wrong-cm ingress to nginx cluster")
+
+	s.T().Cleanup(func() {
+		_ = s.traefik.DeleteIngress(wrongCMIngressName)
+		_ = s.nginx.DeleteIngress(wrongCMIngressName)
+	})
+
+	s.traefik.WaitForIngressReady(s.T(), wrongCMHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), wrongCMNginxHost, 20, 1*time.Second)
+
+	traefikResp := s.traefik.MakeRequest(s.T(), wrongCMHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp := s.nginx.MakeRequest(s.T(), wrongCMNginxHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch with wrong ConfigMap")
 }
