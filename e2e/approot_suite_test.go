@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -72,15 +71,16 @@ func (s *AppRootSuite) TestAppRoot() {
 			method: http.MethodGet,
 			path:   "/",
 			check: func(t *testing.T, traefikResp, nginxResp *Response) {
+				t.Helper()
 				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 				assert.Equal(t, http.StatusFound, traefikResp.StatusCode, "expected redirect for /")
 
 				traefikLocation := traefikResp.ResponseHeaders.Get("Location")
 				nginxLocation := nginxResp.ResponseHeaders.Get("Location")
 
-				assert.True(t, strings.HasSuffix(traefikLocation, "/dashboard"),
+				assert.Equal(t, "http://"+appRootTraefikHost+"/dashboard", traefikLocation,
 					"traefik Location header should end with /dashboard, got: %s", traefikLocation)
-				assert.True(t, strings.HasSuffix(nginxLocation, "/dashboard"),
+				assert.Equal(t, "http://"+appRootNginxHost+"/dashboard", nginxLocation,
 					"nginx Location header should end with /dashboard, got: %s", nginxLocation)
 			},
 		},
@@ -89,6 +89,7 @@ func (s *AppRootSuite) TestAppRoot() {
 			method: http.MethodGet,
 			path:   "/other",
 			check: func(t *testing.T, traefikResp, nginxResp *Response) {
+				t.Helper()
 				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "expected 200 for non-root path /other")
 
@@ -101,8 +102,45 @@ func (s *AppRootSuite) TestAppRoot() {
 			method: http.MethodGet,
 			path:   "/some/path/",
 			check: func(t *testing.T, traefikResp, nginxResp *Response) {
+				t.Helper()
 				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "expected 200 for /some/path/")
+			},
+		},
+		{
+			desc:   "root with query parameter",
+			method: http.MethodGet,
+			path:   "/?foo=bar",
+			check: func(t *testing.T, traefikResp, nginxResp *Response) {
+				t.Helper()
+				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+				assert.Equal(t, http.StatusFound, traefikResp.StatusCode, "expected redirect for /?foo=bar")
+
+				traefikLocation := traefikResp.ResponseHeaders.Get("Location")
+				nginxLocation := nginxResp.ResponseHeaders.Get("Location")
+
+				assert.Equal(t, "http://"+appRootTraefikHost+"/dashboard", traefikLocation,
+					"traefik Location header should end with /dashboard, got: %s", traefikLocation)
+				assert.Equal(t, "http://"+appRootNginxHost+"/dashboard", nginxLocation,
+					"nginx Location header should end with /dashboard, got: %s", nginxLocation)
+			},
+		},
+		{
+			desc:   "root with multiple query parameters",
+			method: http.MethodGet,
+			path:   "/?foo=bar&baz=qux",
+			check: func(t *testing.T, traefikResp, nginxResp *Response) {
+				t.Helper()
+				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+				assert.Equal(t, http.StatusFound, traefikResp.StatusCode, "expected redirect for /?foo=bar&baz=qux")
+
+				traefikLocation := traefikResp.ResponseHeaders.Get("Location")
+				nginxLocation := nginxResp.ResponseHeaders.Get("Location")
+
+				assert.Equal(t, "http://"+appRootTraefikHost+"/dashboard", traefikLocation,
+					"traefik Location header should end with /dashboard, got: %s", traefikLocation)
+				assert.Equal(t, "http://"+appRootNginxHost+"/dashboard", nginxLocation,
+					"nginx Location header should end with /dashboard, got: %s", nginxLocation)
 			},
 		},
 	}
