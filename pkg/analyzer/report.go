@@ -24,7 +24,7 @@ const (
 // that are explicitly documented as unsupported by Traefik v3.7.
 // An annotation in this set is known to the tool but has no Traefik equivalent.
 // Annotations that are in neither this set nor supportedAnnotations are "unknown"
-// to the tool and may be typos, custom extensions, or annotations not yet catalogued.
+// to the tool and may be typos, custom extensions, or annotations not yet cataloged.
 var knownUnsupportedAnnotations = map[string]struct{}{
 	// Authentication.
 	"nginx.ingress.kubernetes.io/auth-tls-error-page":       {},
@@ -214,7 +214,7 @@ type IngressReport struct {
 
 	// UnknownAnnotations are nginx.ingress.kubernetes.io/* annotations that are not
 	// present in either the supported or known-unsupported lists. They may be typos,
-	// custom extensions, or annotations not yet catalogued by this tool.
+	// custom extensions, or annotations not yet catalogud by this tool.
 	UnknownAnnotations []string `json:"unknownAnnotations,omitempty"`
 
 	SupportedAnnotations []AnnotationInfo `json:"supportedAnnotations,omitempty"`
@@ -441,7 +441,7 @@ func computeIngressReport(ing *netv1.Ingress) *IngressReport {
 			unsupportedAnnotations = append(unsupportedAnnotations, annotation)
 		} else {
 			// Not in either list: could be a typo, custom extension, or an annotation
-			// not yet catalogued by this tool.
+			// not yet cataloged by this tool.
 			unknownAnnotations = append(unknownAnnotations, annotation)
 		}
 		// TODO: also check annotation values that are not supported, like nginx.ingress.kubernetes.io/backend-protocol: FCGI
