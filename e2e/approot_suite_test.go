@@ -1,7 +1,9 @@
 package e2e
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +46,18 @@ func (s *AppRootSuite) SetupSuite() {
 func (s *AppRootSuite) TearDownSuite() {
 	_ = s.traefik.DeleteIngress(appRootIngressName)
 	_ = s.nginx.DeleteIngress(appRootIngressName)
+}
+
+func (s *AppRootSuite) requestWithHost(method, path string, headers map[string]string, host string) (traefikResp, nginxResp *Response) {
+	s.T().Helper()
+
+	traefikResp = s.traefik.MakeRequest(s.T(), host, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), strings.Replace(host, "traefik.local", "nginx.local", 1), method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	return traefikResp, nginxResp
 }
 
 func (s *AppRootSuite) request(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
@@ -149,6 +163,71 @@ func (s *AppRootSuite) TestAppRoot() {
 		s.T().Run(tc.desc, func(t *testing.T) {
 			traefikResp, nginxResp := s.request(tc.method, tc.path, tc.headers)
 			tc.check(t, traefikResp, nginxResp)
+		})
+	}
+}
+
+func (s *AppRootSuite) TestAppRootWithVariableInterpolation() {
+	const (
+		variableIngressName = "app-root-var"
+		variableTraefikHost = variableIngressName + ".traefik.local"
+		variableNginxHost   = variableIngressName + ".nginx.local"
+	)
+
+	variableAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/app-root": "/login$is_args$args",
+	}
+
+	err := s.traefik.DeployIngress(variableIngressName, variableTraefikHost, variableAnnotations)
+	require.NoError(s.T(), err, "deploy variable app-root ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(variableIngressName, variableNginxHost, variableAnnotations)
+	require.NoError(s.T(), err, "deploy variable app-root ingress to nginx cluster")
+
+	s.T().Cleanup(func() {
+		_ = s.traefik.DeleteIngress(variableIngressName)
+		_ = s.nginx.DeleteIngress(variableIngressName)
+	})
+
+	s.traefik.WaitForIngressReady(s.T(), variableTraefikHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), variableNginxHost, 20, 1*time.Second)
+
+	testCases := []struct {
+		desc     string
+		path     string
+		expected string
+	}{
+		{
+			desc:     "root without query params",
+			path:     "/",
+			expected: "/login",
+		},
+		{
+			desc:     "root with single query param",
+			path:     "/?foo=bar",
+			expected: "/login?foo=bar",
+		},
+		{
+			desc:     "root with multiple query params",
+			path:     "/?foo=bar&baz=qux",
+			expected: "/login?foo=bar&baz=qux",
+		},
+	}
+
+	for _, tc := range testCases {
+		s.T().Run(tc.desc, func(t *testing.T) {
+			traefikResp, nginxResp := s.requestWithHost(http.MethodGet, tc.path, nil, variableTraefikHost)
+
+			assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+			assert.Equal(t, http.StatusFound, traefikResp.StatusCode, "expected redirect for %s", tc.path)
+
+			traefikLocation := traefikResp.ResponseHeaders.Get("Location")
+			nginxLocation := nginxResp.ResponseHeaders.Get("Location")
+
+			assert.Equal(t, fmt.Sprintf("http://%s%s", variableTraefikHost, tc.expected), traefikLocation,
+				"traefik Location mismatch for %s", tc.path)
+			assert.Equal(t, fmt.Sprintf("http://%s%s", variableNginxHost, tc.expected), nginxLocation,
+				"nginx Location mismatch for %s", tc.path)
 		})
 	}
 }
