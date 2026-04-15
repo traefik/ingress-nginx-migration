@@ -248,8 +248,8 @@ func (s *RewriteTargetSuite) TestSimpleRewrite() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for /app")
 
-	assert.Contains(s.T(), "GET / HTTP/1.1", nginxResp.Body, "nginx backend should see URI /")
-	assert.Contains(s.T(), "GET / HTTP/1.1", traefikResp.Body, "traefik backend should see URI /")
+	assert.Contains(s.T(), nginxResp.Body, "GET / HTTP/1.1", "nginx backend should see URI /")
+	assert.Contains(s.T(), traefikResp.Body, "GET / HTTP/1.1", "traefik backend should see URI /")
 }
 
 func (s *RewriteTargetSuite) TestSimpleRewriteSubpath() {
@@ -258,8 +258,8 @@ func (s *RewriteTargetSuite) TestSimpleRewriteSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for /app/hello")
 
-	assert.Contains(s.T(), "GET /hello HTTP/1.1", nginxResp.Body, "nginx backend should see URI /hello")
-	assert.Contains(s.T(), "GET /hello HTTP/1.1", traefikResp.Body, "traefik backend should see URI /hello")
+	assert.Contains(s.T(), nginxResp.Body, "GET /hello HTTP/1.1", "nginx backend should see URI /hello")
+	assert.Contains(s.T(), traefikResp.Body, "GET /hello HTTP/1.1", "traefik backend should see URI /hello")
 }
 
 func (s *RewriteTargetSuite) TestCaptureGroupRewrite() {
@@ -268,8 +268,8 @@ func (s *RewriteTargetSuite) TestCaptureGroupRewrite() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for /api/users")
 
-	assert.Contains(s.T(), "GET /users HTTP/1.1", nginxResp.Body, "nginx backend should see URI /users")
-	assert.Contains(s.T(), "GET /users HTTP/1.1", traefikResp.Body, "traefik backend should see URI /users")
+	assert.Contains(s.T(), nginxResp.Body, "GET /users HTTP/1.1", "nginx backend should see URI /users")
+	assert.Contains(s.T(), traefikResp.Body, "GET /users HTTP/1.1", "traefik backend should see URI /users")
 }
 
 func (s *RewriteTargetSuite) TestCaptureGroupRewriteRoot() {
@@ -278,8 +278,8 @@ func (s *RewriteTargetSuite) TestCaptureGroupRewriteRoot() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for /api/")
 
-	assert.Contains(s.T(), "GET / HTTP/1.1", nginxResp.Body, "nginx backend should see URI /")
-	assert.Contains(s.T(), "GET / HTTP/1.1", traefikResp.Body, "traefik backend should see URI /")
+	assert.Contains(s.T(), nginxResp.Body, "GET / HTTP/1.1", "nginx backend should see URI /")
+	assert.Contains(s.T(), traefikResp.Body, "GET / HTTP/1.1", "traefik backend should see URI /")
 }
 
 func (s *RewriteTargetSuite) TestCaptureGroupRewriteDeepPath() {
@@ -288,8 +288,8 @@ func (s *RewriteTargetSuite) TestCaptureGroupRewriteDeepPath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for /api/v1/users/123")
 
-	assert.Contains(s.T(), "GET /v1/users/123 HTTP/1.1", nginxResp.Body, "nginx backend should see URI /v1/users/123")
-	assert.Contains(s.T(), "GET /v1/users/123 HTTP/1.1", traefikResp.Body, "traefik backend should see URI /v1/users/123")
+	assert.Contains(s.T(), nginxResp.Body, "GET /v1/users/123 HTTP/1.1", "nginx backend should see URI /v1/users/123")
+	assert.Contains(s.T(), traefikResp.Body, "GET /v1/users/123 HTTP/1.1", "traefik backend should see URI /v1/users/123")
 }
 
 // requestNoRegex makes the same HTTP request against both clusters using the no-regex ingress hosts.
@@ -315,8 +315,8 @@ func (s *RewriteTargetSuite) TestNoRegexRewriteBehavior() {
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for /")
 
 	// Both should rewrite to /rewritten since rewrite-target applies regardless of use-regex.
-	assert.Contains(s.T(), "GET /rewritten HTTP/1.1", nginxResp.Body, "nginx backend should see rewritten URI")
-	assert.Contains(s.T(), "GET /rewritten HTTP/1.1", traefikResp.Body, "traefik backend should see rewritten URI")
+	assert.Contains(s.T(), nginxResp.Body, "GET /rewritten HTTP/1.1", "nginx backend should see rewritten URI")
+	assert.Contains(s.T(), traefikResp.Body, "GET /rewritten HTTP/1.1", "traefik backend should see rewritten URI")
 }
 
 // requestExactPath makes the same HTTP request against both clusters using the exact-path rewrite hosts.
@@ -338,8 +338,8 @@ func (s *RewriteTargetSuite) TestExactPathRewrite() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for /original")
 
-	assert.Contains(s.T(), "GET /rewritten HTTP/1.1", nginxResp.Body, "nginx backend should see URI /rewritten")
-	assert.Contains(s.T(), "GET /rewritten HTTP/1.1", traefikResp.Body, "traefik backend should see URI /rewritten")
+	assert.Contains(s.T(), nginxResp.Body, "GET /rewritten HTTP/1.1", "nginx backend should see URI /rewritten")
+	assert.Contains(s.T(), traefikResp.Body, "GET /rewritten HTTP/1.1", "traefik backend should see URI /rewritten")
 }
 
 func (s *RewriteTargetSuite) TestFullPathRewriteNoRegexPath() {
@@ -402,8 +402,8 @@ func (s *RewriteTargetSuite) TestFullPathRewriteWithRegexPath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
 
-	assert.Equal(s.T(), nginxResp.ResponseHeaders.Get("Location"), "https://bar.example.org/other", "nginx backend should redirect to rewrite target full URL")
-	assert.Equal(s.T(), traefikResp.ResponseHeaders.Get("Location"), "https://bar.example.org/other", "traefik backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), "https://bar.example.org/other", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), "https://bar.example.org/other", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
 
 	traefikResp = s.traefik.MakeRequest(s.T(), fullPathWithPathRegexTraefikHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
@@ -414,6 +414,6 @@ func (s *RewriteTargetSuite) TestFullPathRewriteWithRegexPath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
 
-	assert.Equal(s.T(), nginxResp.ResponseHeaders.Get("Location"), "https://bar.example.org/a/b/c", "nginx backend should redirect to rewrite target full URL")
-	assert.Equal(s.T(), traefikResp.ResponseHeaders.Get("Location"), "https://bar.example.org/a/b/c", "traefik backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), "https://bar.example.org/a/b/c", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), "https://bar.example.org/a/b/c", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
 }
