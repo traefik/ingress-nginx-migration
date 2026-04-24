@@ -36,4 +36,8 @@ spec:
           service:
             name: {{ .ServiceName }}
             port:
+{{- if .ServicePortName }}
+              name: {{ .ServicePortName }}
+{{- else }}
               number: {{ .ServicePort }}
+{{- end }}
