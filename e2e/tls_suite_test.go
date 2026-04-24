@@ -49,8 +49,8 @@ func (s *TLSSuite) TestTLS() {
 				nginxResp := s.nginx.MakeTLSRequest(t, hostNginx, http.MethodGet, "/resource", nil, nil, 3, 1*time.Second)
 				require.NotNil(t, nginxResp, "nginx response should not be nil")
 
-				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
-				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "traefik should match nginx behavior")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "expected 200 — no ssl-redirect annotation")
 			},
 		},
 		{
@@ -66,8 +66,8 @@ func (s *TLSSuite) TestTLS() {
 				nginxResp := s.nginx.MakeTLSRequest(t, hostNginx, http.MethodGet, "/resource", nil, nil, 3, 1*time.Second)
 				require.NotNil(t, nginxResp, "nginx response should not be nil")
 
-				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
-				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "traefik should match nginx behavior")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "expected 200 — TLS served with default cert when secret is invalid")
 			},
 		},
 		{
@@ -85,8 +85,8 @@ func (s *TLSSuite) TestTLS() {
 				nginxResp := s.nginx.MakeTLSRequest(t, hostNginx, http.MethodGet, "/resource", nil, nil, 3, 1*time.Second)
 				require.NotNil(t, nginxResp, "nginx response should not be nil")
 
-				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
-				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "traefik should match nginx behavior")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "expected 200 — TLS served normally even with invalid secret")
 
 				traefikResp = s.traefik.MakeRequest(t, hostTraefik, http.MethodGet, "/resource", nil, 3, 1*time.Second)
 				require.NotNil(t, traefikResp, "traefik response should not be nil")
@@ -94,8 +94,9 @@ func (s *TLSSuite) TestTLS() {
 				nginxResp = s.nginx.MakeRequest(t, hostNginx, http.MethodGet, "/resource", nil, 3, 1*time.Second)
 				require.NotNil(t, nginxResp, "nginx response should not be nil")
 
-				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
-				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+				// force-ssl-redirect: true + spec.tls present → HTTP requests are permanently redirected to HTTPS.
+				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "traefik should match nginx behavior")
+				assert.Equal(t, http.StatusPermanentRedirect, nginxResp.StatusCode, "expected 308 — force-ssl-redirect always redirects HTTP to HTTPS")
 			},
 		},
 		{
@@ -115,8 +116,8 @@ func (s *TLSSuite) TestTLS() {
 				nginxResp := s.nginx.MakeRequest(t, hostNginx, http.MethodGet, "/other", nil, 3, 1*time.Second)
 				require.NotNil(t, nginxResp, "nginx response should not be nil")
 
-				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik status code mismatch")
-				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx status code mismatch")
+				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "traefik should match nginx behavior")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "expected 200 — default backend serves unmatched paths")
 
 				// TLS
 				traefikResp = s.traefik.MakeTLSRequest(t, hostTraefik, http.MethodGet, "/", nil, nil, 3, 1*time.Second)
@@ -125,8 +126,9 @@ func (s *TLSSuite) TestTLS() {
 				nginxResp = s.nginx.MakeTLSRequest(t, hostNginx, http.MethodGet, "/", nil, nil, 3, 1*time.Second)
 				require.NotNil(t, nginxResp, "nginx response should not be nil")
 
-				assert.Equal(t, http.StatusPermanentRedirect, traefikResp.StatusCode, "traefik status code mismatch")
-				assert.Equal(t, http.StatusPermanentRedirect, nginxResp.StatusCode, "nginx status code mismatch")
+				// No TLS section and no ssl-redirect annotation → HTTPS requests are served normally.
+				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "traefik should match nginx behavior")
+				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "expected 200 — no ssl-redirect annotation")
 			},
 		},
 	}
@@ -142,13 +144,13 @@ func (s *TLSSuite) TestTLS() {
 				// Deploy status-backend and error-backend to both clusters.
 				for _, cluster := range []*Cluster{s.traefik, s.nginx} {
 					err := cluster.ApplyFixture("status-backend.yaml")
-					require.NoError(s.T(), err, "deploy status-backend to %s cluster", cluster.Name)
+					require.NoError(t, err, "deploy status-backend to %s cluster", cluster.Name)
 				}
 
 				// Wait for backends to be ready.
 				for _, cluster := range []*Cluster{s.traefik, s.nginx} {
 					err := waitForDeployment(cluster, cluster.TestNamespace, "status-backend")
-					require.NoError(s.T(), err, "status-backend not ready in %s cluster", cluster.Name)
+					require.NoError(t, err, "status-backend not ready in %s cluster", cluster.Name)
 				}
 			}
 
@@ -159,7 +161,7 @@ func (s *TLSSuite) TestTLS() {
 				TLSSecret:      test.tlsSecret,
 				DefaultBackend: test.defaultBackend,
 			})
-			require.NoError(s.T(), err, "deploy %s ingress to traefik cluster", prefix)
+			require.NoError(t, err, "deploy %s ingress to traefik cluster", prefix)
 
 			err = s.nginx.DeployIngressWith(ingressTemplateData{
 				Name:           prefix,
@@ -168,17 +170,17 @@ func (s *TLSSuite) TestTLS() {
 				TLSSecret:      test.tlsSecret,
 				DefaultBackend: test.defaultBackend,
 			})
-			require.NoError(s.T(), err, "deploy %s ingress to nginx cluster", prefix)
+			require.NoError(t, err, "deploy %s ingress to nginx cluster", prefix)
 
-			s.T().Cleanup(func() {
+			t.Cleanup(func() {
 				_ = s.traefik.DeleteIngress(prefix)
 				_ = s.nginx.DeleteIngress(prefix)
 			})
 
-			s.traefik.WaitForIngressReady(s.T(), hostTraefik, 20, 1*time.Second)
-			s.nginx.WaitForIngressReady(s.T(), hostNginx, 20, 1*time.Second)
+			s.traefik.WaitForIngressReady(t, hostTraefik, 20, 1*time.Second)
+			s.nginx.WaitForIngressReady(t, hostNginx, 20, 1*time.Second)
 
-			test.test(s.T(), hostTraefik, hostNginx)
+			test.test(t, hostTraefik, hostNginx)
 		})
 	}
 }

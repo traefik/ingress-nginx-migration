@@ -250,7 +250,8 @@ func (s *RateLimitSuite) TestRPMExceedLimit() {
 	var nginxRateLimited bool
 
 	// Send rapid requests to exceed the limit-rpm=1 threshold.
-	for i := 0; i < 5; i++ {
+	// 30 requests ensures we exceed nginx's burst (calculated as round(rpm/60*5) ≥ 1).
+	for i := 0; i < 30; i++ {
 		traefikResp := s.traefik.MakeRequest(s.T(), rateLimitRPMExceedTraefikHost, http.MethodGet, "/", nil, 1, 0)
 		require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 		if traefikResp.StatusCode == http.StatusTooManyRequests {
