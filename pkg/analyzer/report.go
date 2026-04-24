@@ -20,6 +20,71 @@ const (
 	withoutClass                 = "without-class"
 )
 
+// knownUnsupportedAnnotations is the set of NGINX ingress controller annotations
+// that are explicitly documented as unsupported by Traefik v3.7.
+// An annotation in this set is known to the tool but has no Traefik equivalent.
+// Annotations that are in neither this set nor supportedAnnotations are "unknown"
+// to the tool and may be typos, custom extensions, or annotations not yet cataloged.
+var knownUnsupportedAnnotations = map[string]struct{}{
+	// Authentication.
+	"nginx.ingress.kubernetes.io/auth-tls-error-page":       {},
+	"nginx.ingress.kubernetes.io/auth-tls-match-cn":         {},
+	"nginx.ingress.kubernetes.io/auth-cache-key":            {},
+	"nginx.ingress.kubernetes.io/auth-cache-duration":       {},
+	"nginx.ingress.kubernetes.io/auth-keepalive":            {},
+	"nginx.ingress.kubernetes.io/auth-keepalive-share-vars": {},
+	"nginx.ingress.kubernetes.io/auth-keepalive-requests":   {},
+	"nginx.ingress.kubernetes.io/auth-keepalive-timeout":    {},
+	"nginx.ingress.kubernetes.io/auth-proxy-set-headers":    {},
+	"nginx.ingress.kubernetes.io/enable-global-auth":        {},
+	// Error handling.
+	"nginx.ingress.kubernetes.io/disable-proxy-intercept-errors": {},
+	// Rate limiting.
+	"nginx.ingress.kubernetes.io/limit-rate-after":                {},
+	"nginx.ingress.kubernetes.io/limit-rate":                      {},
+	"nginx.ingress.kubernetes.io/limit-whitelist":                 {},
+	"nginx.ingress.kubernetes.io/limit-connections":               {},
+	"nginx.ingress.kubernetes.io/global-rate-limit":               {},
+	"nginx.ingress.kubernetes.io/global-rate-limit-window":        {},
+	"nginx.ingress.kubernetes.io/global-rate-limit-key":           {},
+	"nginx.ingress.kubernetes.io/global-rate-limit-ignored-cidrs": {},
+	// Path handling.
+	"nginx.ingress.kubernetes.io/preserve-trailing-slash": {},
+	// Proxy / backend.
+	"nginx.ingress.kubernetes.io/proxy-cookie-domain": {},
+	"nginx.ingress.kubernetes.io/proxy-cookie-path":   {},
+	"nginx.ingress.kubernetes.io/proxy-redirect-from": {},
+	"nginx.ingress.kubernetes.io/proxy-redirect-to":   {},
+	// TLS / SSL (backend).
+	"nginx.ingress.kubernetes.io/proxy-ssl-ciphers":      {},
+	"nginx.ingress.kubernetes.io/proxy-ssl-verify-depth": {},
+	"nginx.ingress.kubernetes.io/proxy-ssl-protocols":    {},
+	// Rewriting.
+	"nginx.ingress.kubernetes.io/enable-rewrite-log": {},
+	// Access control.
+	"nginx.ingress.kubernetes.io/satisfy":               {},
+	"nginx.ingress.kubernetes.io/denylist-source-range": {},
+	// Session affinity.
+	"nginx.ingress.kubernetes.io/session-cookie-conditional-samesite-none": {},
+	"nginx.ingress.kubernetes.io/session-cookie-change-on-failure":         {},
+	// TLS / SSL (ingress).
+	"nginx.ingress.kubernetes.io/ssl-ciphers":               {},
+	"nginx.ingress.kubernetes.io/ssl-prefer-server-ciphers": {},
+	// Connection.
+	"nginx.ingress.kubernetes.io/connection-proxy-header": {},
+	// Observability / tracing.
+	"nginx.ingress.kubernetes.io/enable-opentracing":                {},
+	"nginx.ingress.kubernetes.io/opentracing-trust-incoming-span":   {},
+	"nginx.ingress.kubernetes.io/enable-opentelemetry":              {},
+	"nginx.ingress.kubernetes.io/opentelemetry-trust-incoming-span": {},
+	// Traffic mirroring.
+	"nginx.ingress.kubernetes.io/mirror-request-body": {},
+	"nginx.ingress.kubernetes.io/mirror-target":       {},
+	"nginx.ingress.kubernetes.io/mirror-host":         {},
+	// Streaming.
+	"nginx.ingress.kubernetes.io/stream-snippet": {},
+}
+
 // supportedAnnotations maps supported NGINX ingress controller annotations
 // to the minimum Traefik version that supports them.
 var supportedAnnotations = map[string]string{
@@ -139,12 +204,21 @@ type AnnotationInfo struct {
 
 // IngressReport contains the analysis report for a single Ingress.
 type IngressReport struct {
-	Name                   string            `json:"name"`
-	Namespace              string            `json:"namespace"`
-	IngressClassName       string            `json:"ingressClassName"`
-	UnsupportedAnnotations []string          `json:"unsupportedAnnotations"`
-	SupportedAnnotations   []AnnotationInfo  `json:"supportedAnnotations,omitempty"`
-	HasNginxAnnotation     bool              `json:"-"`
+	Name             string `json:"name"`
+	Namespace        string `json:"namespace"`
+	IngressClassName string `json:"ingressClassName"`
+
+	// UnsupportedAnnotations are nginx.ingress.kubernetes.io/* annotations that are
+	// explicitly documented as unsupported by Traefik. They require manual migration.
+	UnsupportedAnnotations []string `json:"unsupportedAnnotations"`
+
+	// UnknownAnnotations are nginx.ingress.kubernetes.io/* annotations that are not
+	// present in either the supported or known-unsupported lists. They may be typos,
+	// custom extensions, or annotations not yet catalogud by this tool.
+	UnknownAnnotations []string `json:"unknownAnnotations,omitempty"`
+
+	SupportedAnnotations []AnnotationInfo `json:"supportedAnnotations,omitempty"`
+	HasNginxAnnotation   bool             `json:"-"`
 }
 
 // Report contains the analysis report for all Ingresses.
@@ -171,11 +245,19 @@ type Report struct {
 	SupportedIngressCount      int     `json:"supportedIngressCount"`
 	SupportedIngressPercentage float64 `json:"supportedIngressPercentage"`
 
-	// Unsupported means all ingresses with unsupported ingress-nginx controller specific annotations.
-	UnsupportedIngressCount       int             `json:"unsupportedIngressCount"`
-	UnsupportedIngressPercentage  float64         `json:"unsupportedIngressPercentage"`
-	UnsupportedIngressAnnotations map[string]int  `json:"unsupportedIngressAnnotations"`
-	UnsupportedIngresses          []IngressReport `json:"unsupportedIngresses"`
+	// Unsupported means all ingresses with unsupported or unknown nginx annotations.
+	UnsupportedIngressCount      int     `json:"unsupportedIngressCount"`
+	UnsupportedIngressPercentage float64 `json:"unsupportedIngressPercentage"`
+
+	// UnsupportedIngressAnnotations counts how often each known-unsupported annotation
+	// appears across all ingresses.
+	UnsupportedIngressAnnotations map[string]int `json:"unsupportedIngressAnnotations"`
+
+	// UnknownIngressAnnotations counts how often each unknown annotation
+	// (not in the supported or known-unsupported lists) appears across all ingresses.
+	UnknownIngressAnnotations map[string]int `json:"unknownIngressAnnotations"`
+
+	UnsupportedIngresses []IngressReport `json:"unsupportedIngresses"`
 
 	// SupportedIngressAnnotations lists all supported annotations found in user's ingresses, sorted by name.
 	SupportedIngressAnnotations []AnnotationInfo `json:"supportedIngressAnnotations"`
@@ -192,6 +274,7 @@ func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses
 		Version:                       version.Version,
 		IngressCountByClass:           make(map[string]int),
 		UnsupportedIngressAnnotations: make(map[string]int),
+		UnknownIngressAnnotations:     make(map[string]int),
 	}
 
 	// First we filter all NGINX ingress classes.
@@ -227,8 +310,8 @@ func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses
 			allSupportedAnnotations[ann.Name] = ann.Version
 		}
 
-		// Ingress is compatible
-		if len(ingReport.UnsupportedAnnotations) == 0 {
+		// Ingress is compatible only if it has no known-unsupported and no unknown annotations.
+		if len(ingReport.UnsupportedAnnotations) == 0 && len(ingReport.UnknownAnnotations) == 0 {
 			report.CompatibleIngressCount++
 
 			if !ingReport.HasNginxAnnotation {
@@ -242,12 +325,16 @@ func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses
 			continue
 		}
 
-		// Has unsupported NGINX annotations
+		// Has known-unsupported or unknown NGINX annotations.
 		report.UnsupportedIngressCount++
 		report.UnsupportedIngresses = append(report.UnsupportedIngresses, *ingReport)
 
 		for _, a := range ingReport.UnsupportedAnnotations {
 			report.UnsupportedIngressAnnotations[a]++
+		}
+
+		for _, a := range ingReport.UnknownAnnotations {
+			report.UnknownIngressAnnotations[a]++
 		}
 	}
 
@@ -282,6 +369,7 @@ type reportHashPayload struct {
 	SupportedIngressCount         int              `json:"supportedIngressCount"`
 	UnsupportedIngressCount       int              `json:"unsupportedIngressCount"`
 	UnsupportedIngressAnnotations map[string]int   `json:"unsupportedIngressAnnotations"`
+	UnknownIngressAnnotations     map[string]int   `json:"unknownIngressAnnotations"`
 	SupportedIngressAnnotations   []AnnotationInfo `json:"supportedIngressAnnotations"`
 	CompatibleV36IngressCount     int              `json:"compatibleV36IngressCount"`
 	CompatibleV37IngressCount     int              `json:"compatibleV37IngressCount"`
@@ -319,6 +407,7 @@ func computeReportHash(report Report) string {
 		SupportedIngressCount:         report.SupportedIngressCount,
 		UnsupportedIngressCount:       report.UnsupportedIngressCount,
 		UnsupportedIngressAnnotations: report.UnsupportedIngressAnnotations,
+		UnknownIngressAnnotations:     report.UnknownIngressAnnotations,
 		SupportedIngressAnnotations:   report.SupportedIngressAnnotations,
 		CompatibleV36IngressCount:     report.CompatibleV36IngressCount,
 		CompatibleV37IngressCount:     report.CompatibleV37IngressCount,
@@ -334,30 +423,42 @@ func computeReportHash(report Report) string {
 func computeIngressReport(ing *netv1.Ingress) *IngressReport {
 	var hasNginxAnnotation bool
 	var unsupportedAnnotations []string
+	var unknownAnnotations []string
 	var supported []AnnotationInfo
 
 	for annotation := range ing.Annotations {
-		if strings.HasPrefix(annotation, ingressNginxAnnotationPrefix) {
-			hasNginxAnnotation = true
-			// This is a NGINX ingress annotation
-			if ver, ok := supportedAnnotations[annotation]; ok {
-				supported = append(supported, AnnotationInfo{Name: annotation, Version: ver})
-			} else {
-				unsupportedAnnotations = append(unsupportedAnnotations, annotation)
-			}
-			// TODO: also check the annotation value that are not supported, like nginx.ingress.kubernetes.io/backend-protocol: FCGI
+		if !strings.HasPrefix(annotation, ingressNginxAnnotationPrefix) {
+			continue
 		}
+
+		hasNginxAnnotation = true
+
+		if ver, ok := supportedAnnotations[annotation]; ok {
+			// Known and supported by Traefik.
+			supported = append(supported, AnnotationInfo{Name: annotation, Version: ver})
+		} else if _, ok := knownUnsupportedAnnotations[annotation]; ok {
+			// Known but explicitly unsupported by Traefik.
+			unsupportedAnnotations = append(unsupportedAnnotations, annotation)
+		} else {
+			// Not in either list: could be a typo, custom extension, or an annotation
+			// not yet cataloged by this tool.
+			unknownAnnotations = append(unknownAnnotations, annotation)
+		}
+		// TODO: also check annotation values that are not supported, like nginx.ingress.kubernetes.io/backend-protocol: FCGI
 	}
 
 	slices.SortFunc(supported, func(a, b AnnotationInfo) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
+	slices.Sort(unsupportedAnnotations)
+	slices.Sort(unknownAnnotations)
 
 	return &IngressReport{
 		Name:                   ing.Name,
 		Namespace:              ing.Namespace,
 		IngressClassName:       ptr.Deref(ing.Spec.IngressClassName, ""),
 		UnsupportedAnnotations: unsupportedAnnotations,
+		UnknownAnnotations:     unknownAnnotations,
 		SupportedAnnotations:   supported,
 		HasNginxAnnotation:     hasNginxAnnotation,
 	}
