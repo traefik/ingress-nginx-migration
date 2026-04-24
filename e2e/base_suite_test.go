@@ -329,15 +329,16 @@ type ingressDefaultBackend struct {
 }
 
 type ingressTemplateData struct {
-	Name           string
-	Host           string
-	Path           string
-	PathType       string
-	Annotations    map[string]string
-	DefaultBackend *ingressDefaultBackend
-	ServiceName    string // default: "backend"
-	ServicePort    int    // default: 80
-	TLSSecret      string // if non-empty, adds spec.tls section
+	Name            string
+	Host            string
+	Path            string
+	PathType        string
+	Annotations     map[string]string
+	DefaultBackend  *ingressDefaultBackend
+	ServiceName     string // default: "backend"
+	ServicePort     int    // default: 80
+	ServicePortName string // if non-empty, uses port name instead of number
+	TLSSecret       string // if non-empty, adds spec.tls section
 }
 
 type nginxBackendTemplateData struct {
