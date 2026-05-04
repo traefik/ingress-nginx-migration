@@ -214,7 +214,7 @@ type IngressReport struct {
 
 	// UnknownAnnotations are nginx.ingress.kubernetes.io/* annotations that are not
 	// present in either the supported or known-unsupported lists. They may be typos,
-	// custom extensions, or annotations not yet catalogud by this tool.
+	// custom extensions, or annotations not yet cataloged by this tool.
 	UnknownAnnotations []string `json:"unknownAnnotations,omitempty"`
 
 	SupportedAnnotations []AnnotationInfo `json:"supportedAnnotations,omitempty"`

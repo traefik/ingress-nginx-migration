@@ -146,7 +146,7 @@ func TestComputeIngressReport(t *testing.T) {
 			name: "only known-unsupported annotations",
 			annotations: map[string]string{
 				"nginx.ingress.kubernetes.io/denylist-source-range": "192.0.2.0/24",
-				"nginx.ingress.kubernetes.io/limit-connections":      "10",
+				"nginx.ingress.kubernetes.io/limit-connections":     "10",
 			},
 			wantUnsupported: []string{
 				"nginx.ingress.kubernetes.io/denylist-source-range",
@@ -278,9 +278,9 @@ func TestComputeReport_AnnotationClassification(t *testing.T) {
 		}),
 		// Mix of unsupported and unknown.
 		makeIngress("mixed", map[string]string{
-			"nginx.ingress.kubernetes.io/limit-connections":    "10",
-			"nginx.ingress.kubernetes.io/totally-made-up":     "true",
-			"nginx.ingress.kubernetes.io/force-ssl-redirect":  "true",
+			"nginx.ingress.kubernetes.io/limit-connections":  "10",
+			"nginx.ingress.kubernetes.io/totally-made-up":    "true",
+			"nginx.ingress.kubernetes.io/force-ssl-redirect": "true",
 		}),
 	}
 
@@ -320,4 +320,16 @@ func TestComputeReport_AnnotationClassification(t *testing.T) {
 	assert.Equal(t, []string{"nginx.ingress.kubernetes.io/limit-connections"}, mixedReport.UnsupportedAnnotations)
 	assert.Equal(t, []string{"nginx.ingress.kubernetes.io/totally-made-up"}, mixedReport.UnknownAnnotations)
 	assert.Len(t, mixedReport.SupportedAnnotations, 1)
+}
+
+// TestNoOverlapBetweenSupportedAndKnownUnsupported guards against an annotation
+// being accidentally placed in both the supported and known-unsupported sets,
+// which would silently bias classification toward whichever lookup runs first.
+func TestNoOverlapBetweenSupportedAndKnownUnsupported(t *testing.T) {
+	t.Parallel()
+
+	for ann := range knownUnsupportedAnnotations {
+		_, ok := supportedAnnotations[ann]
+		assert.Falsef(t, ok, "annotation %q is present in both supportedAnnotations and knownUnsupportedAnnotations", ann)
+	}
 }

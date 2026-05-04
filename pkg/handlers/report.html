@@ -1000,7 +1000,7 @@
                                         <th>Namespace</th>
                                         <th>Ingress class</th>
                                         <th>Supported annotations</th>
-                                        <th>Unsupported/Invalid annotations</th>
+                                        <th>Annotations requiring attention</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1100,7 +1100,7 @@
             <div id="invalid" class="tab-content {{if and (not .UnsupportedIngresses) (not .UnsupportedIngressAnnotations) (not .SupportedIngressAnnotations)}}active{{end}}">
                 <div class="section">
                     <h2>Invalid annotations</h2>
-                    <p>The following nginx annotations found in your cluster are not recognized by this tool — they are neither in the supported list nor in the known-unsupported list. They may be typos, custom extensions, or annotations not yet catalogued. Manual review is required.</p>
+                    <p>The following nginx annotations found in your cluster are not recognized by this tool. They may be typos, custom extensions, or annotations not yet cataloged. Manual review is required.</p>
 
                     <div class="table-container">
                         <table class="table">
