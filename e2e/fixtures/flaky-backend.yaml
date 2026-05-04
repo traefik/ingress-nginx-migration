@@ -35,6 +35,16 @@ data:
                 ngx.say("reset")
             }
         }
+        # /count returns the current counter without incrementing it,
+        # so tests can assert how many times the backend was hit.
+        location /count {
+            content_by_lua_block {
+                local count = ngx.shared.counters:get("default") or 0
+                ngx.status = 200
+                ngx.header.content_type = "text/plain"
+                ngx.say(count)
+            }
+        }
         # Readiness probe — WaitForIngressReady hits "/" and treats 404 as
         # "not ready"; make sure the root path always serves 200.
         location / {
