@@ -1,7 +1,12 @@
 package e2e
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +35,17 @@ const (
 	retryTimeoutIngressName = "retry-timeout-test"
 	retryTimeoutTraefikHost = retryTimeoutIngressName + ".traefik.local"
 	retryTimeoutNginxHost   = retryTimeoutIngressName + ".nginx.local"
+
+	retryBodyLimitIngressName = "retry-body-limit-test"
+	retryBodyLimitTraefikHost = retryBodyLimitIngressName + ".traefik.local"
+	retryBodyLimitNginxHost   = retryBodyLimitIngressName + ".nginx.local"
+
+	retryFlakyOnIngressName  = "retry-flaky-on-test"
+	retryFlakyOnTraefikHost  = retryFlakyOnIngressName + ".traefik.local"
+	retryFlakyOnNginxHost    = retryFlakyOnIngressName + ".nginx.local"
+	retryFlakyOffIngressName = "retry-flaky-off-test"
+	retryFlakyOffTraefikHost = retryFlakyOffIngressName + ".traefik.local"
+	retryFlakyOffNginxHost   = retryFlakyOffIngressName + ".nginx.local"
 )
 
 type RetrySuite struct {
@@ -98,6 +114,74 @@ func (s *RetrySuite) SetupSuite() {
 	err = s.nginx.DeployIngress(retryTimeoutIngressName, retryTimeoutNginxHost, timeoutAnnotations)
 	require.NoError(s.T(), err, "deploy retry-timeout ingress to nginx cluster")
 
+	// 6. Retry + proxy-body-size: body-size enforcement precedes retry.
+	bodyLimitAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/proxy-next-upstream":       "error timeout http_503",
+		"nginx.ingress.kubernetes.io/proxy-next-upstream-tries": "3",
+		"nginx.ingress.kubernetes.io/proxy-body-size":           "1k",
+	}
+
+	err = s.traefik.DeployIngress(retryBodyLimitIngressName, retryBodyLimitTraefikHost, bodyLimitAnnotations)
+	require.NoError(s.T(), err, "deploy retry-body-limit ingress to traefik cluster")
+
+	err = s.nginx.DeployIngress(retryBodyLimitIngressName, retryBodyLimitNginxHost, bodyLimitAnnotations)
+	require.NoError(s.T(), err, "deploy retry-body-limit ingress to nginx cluster")
+
+	// Flaky backend: /flaky?fail=N returns 503 for the first N requests, then 200.
+	for _, cluster := range []*Cluster{s.traefik, s.nginx} {
+		err = cluster.ApplyFixture("flaky-backend.yaml")
+		require.NoError(s.T(), err, "deploy flaky-backend to %s cluster", cluster.Name)
+	}
+	for _, cluster := range []*Cluster{s.traefik, s.nginx} {
+		err = waitForDeployment(cluster, cluster.TestNamespace, "flaky-backend")
+		require.NoError(s.T(), err, "flaky-backend not ready in %s cluster", cluster.Name)
+	}
+
+	// 7. Flaky backend, default buffering.
+	flakyOnAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/proxy-next-upstream":       "error timeout http_503",
+		"nginx.ingress.kubernetes.io/proxy-next-upstream-tries": "3",
+	}
+
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        retryFlakyOnIngressName,
+		Host:        retryFlakyOnTraefikHost,
+		Annotations: flakyOnAnnotations,
+		ServiceName: "flaky-backend",
+	})
+	require.NoError(s.T(), err, "deploy retry-flaky-on ingress to traefik cluster")
+
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        retryFlakyOnIngressName,
+		Host:        retryFlakyOnNginxHost,
+		Annotations: flakyOnAnnotations,
+		ServiceName: "flaky-backend",
+	})
+	require.NoError(s.T(), err, "deploy retry-flaky-on ingress to nginx cluster")
+
+	// 8. Flaky backend, proxy-request-buffering=off.
+	flakyOffAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/proxy-next-upstream":       "error timeout http_503",
+		"nginx.ingress.kubernetes.io/proxy-next-upstream-tries": "3",
+		"nginx.ingress.kubernetes.io/proxy-request-buffering":   "off",
+	}
+
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        retryFlakyOffIngressName,
+		Host:        retryFlakyOffTraefikHost,
+		Annotations: flakyOffAnnotations,
+		ServiceName: "flaky-backend",
+	})
+	require.NoError(s.T(), err, "deploy retry-flaky-off ingress to traefik cluster")
+
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        retryFlakyOffIngressName,
+		Host:        retryFlakyOffNginxHost,
+		Annotations: flakyOffAnnotations,
+		ServiceName: "flaky-backend",
+	})
+	require.NoError(s.T(), err, "deploy retry-flaky-off ingress to nginx cluster")
+
 	s.traefik.WaitForIngressReady(s.T(), retryDefaultTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), retryDefaultNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), retryDisabledTraefikHost, 20, 1*time.Second)
@@ -108,6 +192,14 @@ func (s *RetrySuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), retryTriesNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), retryTimeoutTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), retryTimeoutNginxHost, 20, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), retryBodyLimitTraefikHost, 20, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), retryBodyLimitNginxHost, 20, 1*time.Second)
+	// Flaky-backend pulls openresty/openresty:alpine on a cold cluster;
+	// give its ingresses extra headroom on top of the 20s default.
+	s.traefik.WaitForIngressReady(s.T(), retryFlakyOnTraefikHost, 60, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), retryFlakyOnNginxHost, 60, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), retryFlakyOffTraefikHost, 60, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), retryFlakyOffNginxHost, 60, 1*time.Second)
 }
 
 func (s *RetrySuite) TearDownSuite() {
@@ -121,6 +213,15 @@ func (s *RetrySuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(retryTriesIngressName)
 	_ = s.traefik.DeleteIngress(retryTimeoutIngressName)
 	_ = s.nginx.DeleteIngress(retryTimeoutIngressName)
+	_ = s.traefik.DeleteIngress(retryBodyLimitIngressName)
+	_ = s.nginx.DeleteIngress(retryBodyLimitIngressName)
+	_ = s.traefik.DeleteIngress(retryFlakyOnIngressName)
+	_ = s.nginx.DeleteIngress(retryFlakyOnIngressName)
+	_ = s.traefik.DeleteIngress(retryFlakyOffIngressName)
+	_ = s.nginx.DeleteIngress(retryFlakyOffIngressName)
+	for _, cluster := range []*Cluster{s.traefik, s.nginx} {
+		_ = cluster.Kubectl("delete", "-f", fmt.Sprintf("%s/flaky-backend.yaml", fixturesDir), "-n", cluster.TestNamespace, "--ignore-not-found")
+	}
 }
 
 func (s *RetrySuite) requestDefault(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
@@ -320,4 +421,140 @@ func (s *RetrySuite) TestRetryTimeoutPreservesHeaders() {
 		"traefik should preserve custom header")
 	assert.Equal(s.T(), "retry-timeout", nginxResp.RequestHeaders["X-Custom-Test"],
 		"nginx should preserve custom header")
+}
+
+// makeRequestWithBody sends a request with a body to the given host against
+// the given cluster. Mirrors the helper in proxybodysize_suite_test.go.
+func (s *RetrySuite) makeRequestWithBody(c *Cluster, host, method, path string, body []byte) *Response {
+	s.T().Helper()
+
+	url := fmt.Sprintf("http://%s:%s%s", c.Host, c.Port, path)
+	client := &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	require.NoError(s.T(), err)
+
+	req.Host = host
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	resp, err := client.Do(req)
+	require.NoError(s.T(), err)
+	defer resp.Body.Close()
+
+	// Tolerate read errors on the body — a controller may close the
+	// connection after sending the status on rejected/large requests.
+	respBody, _ := io.ReadAll(resp.Body)
+
+	return &Response{
+		StatusCode:      resp.StatusCode,
+		Body:            string(respBody),
+		ResponseHeaders: resp.Header,
+	}
+}
+
+func (s *RetrySuite) TestRetryBodyLimitWithinLimit() {
+	body := bytes.Repeat([]byte("R"), 500)
+
+	traefikResp := s.makeRequestWithBody(s.traefik, retryBodyLimitTraefikHost, http.MethodPost, "/", body)
+	nginxResp := s.makeRequestWithBody(s.nginx, retryBodyLimitNginxHost, http.MethodPost, "/", body)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
+		"expected 200 for body within proxy-body-size=1k")
+}
+
+func (s *RetrySuite) TestRetryBodyLimitExceedsLimit() {
+	// 2KB body against a 1k limit: nginx rejects with 413 before any
+	// retry happens. Traefik's provider should match.
+	body := bytes.Repeat([]byte("R"), 2*1024)
+
+	traefikResp := s.makeRequestWithBody(s.traefik, retryBodyLimitTraefikHost, http.MethodPost, "/", body)
+	nginxResp := s.makeRequestWithBody(s.nginx, retryBodyLimitNginxHost, http.MethodPost, "/", body)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusRequestEntityTooLarge, nginxResp.StatusCode,
+		"expected 413 when body exceeds proxy-body-size=1k")
+}
+
+func (s *RetrySuite) resetFlaky(c *Cluster, host string) {
+	s.T().Helper()
+	resp := c.MakeRequest(s.T(), host, http.MethodGet, "/reset", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), resp, "flaky /reset should not be nil")
+	require.Equal(s.T(), http.StatusOK, resp.StatusCode, "flaky /reset should return 200")
+}
+
+func (s *RetrySuite) flakyCount(c *Cluster, host string) int {
+	s.T().Helper()
+	resp := c.MakeRequest(s.T(), host, http.MethodGet, "/count", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), resp, "flaky /count should not be nil")
+	require.Equal(s.T(), http.StatusOK, resp.StatusCode, "flaky /count should return 200")
+	n, err := strconv.Atoi(strings.TrimSpace(resp.Body))
+	require.NoError(s.T(), err, "parse flaky /count body %q", resp.Body)
+	return n
+}
+
+func (s *RetrySuite) TestRetryFlakyBufferingOnRecovers() {
+	body := bytes.Repeat([]byte("R"), 500)
+
+	s.resetFlaky(s.traefik, retryFlakyOnTraefikHost)
+	traefikResp := s.makeRequestWithBody(s.traefik, retryFlakyOnTraefikHost, http.MethodPut, "/flaky?fail=2", body)
+	traefikCount := s.flakyCount(s.traefik, retryFlakyOnTraefikHost)
+
+	s.resetFlaky(s.nginx, retryFlakyOnNginxHost)
+	nginxResp := s.makeRequestWithBody(s.nginx, retryFlakyOnNginxHost, http.MethodPut, "/flaky?fail=2", body)
+	nginxCount := s.flakyCount(s.nginx, retryFlakyOnNginxHost)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
+		"status code mismatch — retry should fire with buffering on")
+	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode,
+		"expected 200 after 2 failed + 1 successful upstream attempt")
+	assert.Equal(s.T(), 3, traefikCount, "traefik should hit backend 3 times (2 fails + 1 success)")
+	assert.Equal(s.T(), 3, nginxCount, "nginx should hit backend 3 times (2 fails + 1 success)")
+}
+
+func (s *RetrySuite) TestRetryFlakyBufferingOffSuppresses() {
+	// 500 KB: above nginx's ~16 KB body buffer (forces streaming) but below
+	// traefik's 2 MB retry-middleware buffer.
+	body := bytes.Repeat([]byte("R"), 500*1024)
+
+	s.resetFlaky(s.traefik, retryFlakyOffTraefikHost)
+	traefikResp := s.makeRequestWithBody(s.traefik, retryFlakyOffTraefikHost, http.MethodPut, "/flaky?fail=2", body)
+	traefikCount := s.flakyCount(s.traefik, retryFlakyOffTraefikHost)
+
+	s.resetFlaky(s.nginx, retryFlakyOffNginxHost)
+	nginxResp := s.makeRequestWithBody(s.nginx, retryFlakyOffNginxHost, http.MethodPut, "/flaky?fail=2", body)
+	nginxCount := s.flakyCount(s.nginx, retryFlakyOffNginxHost)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
+		"status code mismatch — traefik should suppress retry when proxy-request-buffering=off")
+	assert.Equal(s.T(), http.StatusServiceUnavailable, nginxResp.StatusCode,
+		"expected 503 on first-attempt failure with buffering off (retry suppressed)")
+	// count=1 distinguishes "forwarded once, no retry" (correct) from
+	// count=0 (request skipped) or count=3 (retry fired anyway).
+	assert.Equal(s.T(), 1, traefikCount, "traefik should hit backend exactly once (no retry, no skip)")
+	assert.Equal(s.T(), 1, nginxCount, "nginx should hit backend exactly once (no retry, no skip)")
+}
+
+// proxy-request-buffering=off only suppresses retry when there is a body
+// to stream; GET has no body, so retry must still fire.
+func (s *RetrySuite) TestRetryFlakyBufferingOffNoBodyRecovers() {
+	s.resetFlaky(s.traefik, retryFlakyOffTraefikHost)
+	traefikResp := s.traefik.MakeRequest(s.T(), retryFlakyOffTraefikHost, http.MethodGet, "/flaky?fail=2", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	traefikCount := s.flakyCount(s.traefik, retryFlakyOffTraefikHost)
+
+	s.resetFlaky(s.nginx, retryFlakyOffNginxHost)
+	nginxResp := s.nginx.MakeRequest(s.T(), retryFlakyOffNginxHost, http.MethodGet, "/flaky?fail=2", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+	nginxCount := s.flakyCount(s.nginx, retryFlakyOffNginxHost)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
+		"status code mismatch — buffering=off must not suppress retry on bodyless requests")
+	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode,
+		"expected 200 after retry recovers on a GET with buffering off")
+	assert.Equal(s.T(), 3, traefikCount, "traefik should hit backend 3 times (2 fails + 1 success)")
+	assert.Equal(s.T(), 3, nginxCount, "nginx should hit backend 3 times (2 fails + 1 success)")
 }

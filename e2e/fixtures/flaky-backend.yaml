@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flaky-backend-config
+data:
+  default.conf: |
+    lua_shared_dict counters 10m;
+    server {
+        listen 80;
+        # /flaky?fail=N returns 503 for the first N requests (tracked in a
+        # pod-wide shared dict), then 200 afterwards. Used to discriminate
+        # between "retry fired" (200 once the counter passes N) and
+        # "retry suppressed" (503 on the first attempt).
+        location /flaky {
+            content_by_lua_block {
+                local fail_until = tonumber(ngx.var.arg_fail) or 0
+                local counters = ngx.shared.counters
+                local count = counters:incr("default", 1, 0)
+                if count <= fail_until then
+                    ngx.status = 503
+                    ngx.header.content_type = "text/plain"
+                    ngx.say("fail attempt=" .. count .. " fail_until=" .. fail_until)
+                else
+                    ngx.status = 200
+                    ngx.header.content_type = "text/plain"
+                    ngx.say("ok attempt=" .. count)
+                end
+            }
+        }
+        location /reset {
+            content_by_lua_block {
+                ngx.shared.counters:flush_all()
+                ngx.status = 200
+                ngx.header.content_type = "text/plain"
+                ngx.say("reset")
+            }
+        }
+        # /count returns the current counter without incrementing it,
+        # so tests can assert how many times the backend was hit.
+        location /count {
+            content_by_lua_block {
+                local count = ngx.shared.counters:get("default") or 0
+                ngx.status = 200
+                ngx.header.content_type = "text/plain"
+                ngx.say(count)
+            }
+        }
+        # Readiness probe — WaitForIngressReady hits "/" and treats 404 as
+        # "not ready"; make sure the root path always serves 200.
+        location / {
+            default_type text/plain;
+            return 200 "flaky-backend ready";
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flaky-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flaky-backend
+  template:
+    metadata:
+      labels:
+        app: flaky-backend
+    spec:
+      containers:
+      - name: openresty
+        image: openresty/openresty:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d
+      volumes:
+      - name: config
+        configMap:
+          name: flaky-backend-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flaky-backend
+spec:
+  selector:
+    app: flaky-backend
+  ports:
+  - port: 80
+    targetPort: 80
