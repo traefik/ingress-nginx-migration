@@ -477,6 +477,26 @@
             width: fit-content;
         }
 
+        .badge-unsupported {
+            background-color: #f97316;
+            color: white;
+            font-size: var(--font-size-0);
+            padding: 2px 8px;
+            border-radius: var(--radius-1);
+            font-weight: 600;
+            width: fit-content;
+        }
+
+        .badge-invalid {
+            background-color: var(--color-danger);
+            color: white;
+            font-size: var(--font-size-0);
+            padding: 2px 8px;
+            border-radius: var(--radius-1);
+            font-weight: 600;
+            width: fit-content;
+        }
+
         .annotation-list {
             list-style: none;
             display: flex;
@@ -896,7 +916,7 @@
         {{end}}
         {{end}}
 
-        {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses .SupportedIngressAnnotations}}
+        {{if or .UnsupportedIngressAnnotations .UnsupportedIngresses .SupportedIngressAnnotations .UnknownIngressAnnotations}}
         <div class="card card-elevation-1 card-no-padding">
             <div class="tabs">
                 {{if .UnsupportedIngresses}}
@@ -907,6 +927,9 @@
                 {{end}}
                 {{if .SupportedIngressAnnotations}}
                 <button class="tab-button {{if and (not .UnsupportedIngresses) (not .UnsupportedIngressAnnotations)}}active{{end}}" onclick="showTab(event, 'supported')">Supported Annotations<span class="tab-badge">{{len .SupportedIngressAnnotations}}</span></button>
+                {{end}}
+                {{if .UnknownIngressAnnotations}}
+                <button class="tab-button {{if and (not .UnsupportedIngresses) (not .UnsupportedIngressAnnotations) (not .SupportedIngressAnnotations)}}active{{end}}" onclick="showTab(event, 'invalid')">Invalid Annotations<span class="tab-badge">{{len .UnknownIngressAnnotations}}</span></button>
                 {{end}}
             </div>
 
@@ -977,7 +1000,7 @@
                                         <th>Namespace</th>
                                         <th>Ingress class</th>
                                         <th>Supported annotations</th>
-                                        <th>Unsupported annotations</th>
+                                        <th>Annotations requiring attention</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1000,10 +1023,13 @@
                                             {{end}}
                                         </td>
                                         <td>
-                                            {{if .UnsupportedAnnotations}}
+                                            {{if or .UnsupportedAnnotations .UnknownAnnotations}}
                                             <ul class="annotation-list">
                                                 {{range .UnsupportedAnnotations}}
-                                                <li>{{.}}</li>
+                                                <li>{{.}} <span class="badge-unsupported">Unsupported</span></li>
+                                                {{end}}
+                                                {{range .UnknownAnnotations}}
+                                                <li>{{.}} <span class="badge-invalid">Invalid</span></li>
                                                 {{end}}
                                             </ul>
                                             {{else}}
@@ -1061,6 +1087,36 @@
                                 <tr>
                                     <td><span class="annotation-badge">{{.Name}}</span></td>
                                     <td><span class="badge-{{if eq .Version "v3.6"}}v36{{else if hasPrefix .Version "Traefik Hub"}}hub{{else}}v37{{end}}">{{.Version}}</span></td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {{end}}
+
+            {{if .UnknownIngressAnnotations}}
+            <div id="invalid" class="tab-content {{if and (not .UnsupportedIngresses) (not .UnsupportedIngressAnnotations) (not .SupportedIngressAnnotations)}}active{{end}}">
+                <div class="section">
+                    <h2>Invalid annotations</h2>
+                    <p>The following nginx annotations found in your cluster are not recognized by this tool. They may be typos, custom extensions, or annotations not yet cataloged. Manual review is required.</p>
+
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Annotation</th>
+                                    <th>Status</th>
+                                    <th>Usage count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{range $annotation, $count := .UnknownIngressAnnotations}}
+                                <tr>
+                                    <td><span class="annotation-badge">{{$annotation}}</span></td>
+                                    <td><span class="badge-invalid">Invalid</span></td>
+                                    <td>{{$count}}</td>
                                 </tr>
                                 {{end}}
                             </tbody>
