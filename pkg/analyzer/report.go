@@ -93,10 +93,12 @@ var supportedAnnotations = map[string]string{
 	"nginx.ingress.kubernetes.io/auth-secret":      "v3.6",
 	"nginx.ingress.kubernetes.io/auth-realm":       "v3.6",
 	"nginx.ingress.kubernetes.io/auth-secret-type": "v3.6",
+	"nginx.ingress.kubernetes.io/auth-method":      "v3.6",
 	// Forward authentication.
 	"nginx.ingress.kubernetes.io/auth-url":              "v3.6",
 	"nginx.ingress.kubernetes.io/auth-response-headers": "v3.6",
 	"nginx.ingress.kubernetes.io/auth-signin":           "v3.7",
+	"nginx.ingress.kubernetes.io/auth-snippet":          "v3.7",
 	// Client TLS authentication.
 	"nginx.ingress.kubernetes.io/auth-tls-secret":                       "v3.7",
 	"nginx.ingress.kubernetes.io/auth-tls-verify-client":                "v3.7",
