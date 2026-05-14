@@ -9,6 +9,7 @@ spec:
   version: "41.0.0"
   targetNamespace: traefik
   createNamespace: true
+  timeout: 15m
   valuesContent: |-
 {{- if .HasImage }}
     image:
@@ -16,6 +17,7 @@ spec:
       repository: {{ .Repository }}
       tag: "{{ .Tag }}"
       pullPolicy: IfNotPresent
+    versionOverride: "v3.7.0"
 {{- end }}
     log:
       level: DEBUG
@@ -26,6 +28,14 @@ spec:
     providers:
       kubernetesIngressNGINX:
         enabled: true
+      kubernetesCRD:
+        enabled: true
+      kubernetesGateway:
+        enabled: true
+    gateway:
+      enabled: false
+    gatewayClass:
+      enabled: false
     ingressRoute:
       dashboard:
         enabled: true
@@ -36,3 +46,5 @@ spec:
       - --providers.kubernetesIngressNginx.proxyBuffering=true
       - --providers.kubernetesIngressNginx.proxyRequestBuffering=true
       - --providers.kubernetesIngressNginx.globalAllowedResponseHeaders=X-Custom-Resp,X-Frame-Options,X-More-Resp
+      - --providers.kubernetesGateway.statusaddress.service.namespace=traefik
+      - --providers.kubernetesGateway.statusaddress.service.name=traefik

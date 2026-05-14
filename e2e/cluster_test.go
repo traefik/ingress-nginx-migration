@@ -117,6 +117,23 @@ func (c *Cluster) DeployNginxBackend(data nginxBackendTemplateData) error {
 	return c.ApplyManifest(manifest)
 }
 
+// DeployGatewayFixture applies a pre-generated Gateway API fixture file.
+func (c *Cluster) DeployGatewayFixture(fixturePath string) error {
+	if err := c.Kubectl("apply", "-f", fixturePath, "-n", c.TestNamespace); err != nil {
+		return err
+	}
+	// Re-apply after a short delay to work around the CRD provider watch event
+	// drop bug: the first apply may not be detected if the event channel is full.
+	// The second apply triggers an update event that forces re-evaluation.
+	time.Sleep(2 * time.Second)
+	return c.Kubectl("apply", "-f", fixturePath, "-n", c.TestNamespace)
+}
+
+// DeleteGatewayFixture removes a pre-generated Gateway API fixture file.
+func (c *Cluster) DeleteGatewayFixture(fixturePath string) error {
+	return c.Kubectl("delete", "-f", fixturePath, "-n", c.TestNamespace, "--ignore-not-found")
+}
+
 // DeleteSecret deletes a secret resource.
 func (c *Cluster) DeleteSecret(name string) error {
 	return c.Kubectl("delete", "secret", name, "-n", c.TestNamespace, "--ignore-not-found")
@@ -127,13 +144,23 @@ func (c *Cluster) DeleteConfigMap(name string) error {
 	return c.Kubectl("delete", "configmap", name, "-n", c.TestNamespace, "--ignore-not-found")
 }
 
-// DeploySharedResources deploys the whoami backend.
+// DeploySharedResources deploys the whoami backend and Gateway API resources.
 func (c *Cluster) DeploySharedResources() error {
 	if err := c.ApplyFixture("deployment.yaml"); err != nil {
 		return fmt.Errorf("failed to deploy deployment: %w", err)
 	}
 	if err := c.ApplyFixture("service.yaml"); err != nil {
 		return fmt.Errorf("failed to deploy service: %w", err)
+	}
+	// Apply experimental Gateway API CRDs (TLSRoute, TCPRoute, etc.) that
+	// the Traefik chart doesn't include in its standard CRD bundle.
+	// Must be applied AFTER the chart installs its standard CRDs.
+	if err := c.Kubectl("apply", "--server-side", "--force-conflicts", "-f", filepath.Join(fixturesDir, "gateway-api-crds.yaml")); err != nil {
+		return fmt.Errorf("failed to apply gateway API CRDs: %w", err)
+	}
+	// Deploy Gateway + GatewayClass for Gateway API tests.
+	if err := c.ApplyFixture("gateway.yaml"); err != nil {
+		return fmt.Errorf("failed to deploy gateway: %w", err)
 	}
 	return nil
 }
