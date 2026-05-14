@@ -1,0 +1,21 @@
+---
+# Migrated from: ssl-passthrough: "true"
+# ssl-passthrough maps to a TLSRoute attached to the Gateway's TLS-passthrough listener.
+# TLS is NOT terminated by the controller; the connection is forwarded as-is to the backend.
+# The parent Gateway must expose a listener with protocol: TLS and tls.mode: Passthrough
+# (port 8443 by default with the Traefik Helm chart).
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: gateway-ssl-passthrough-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+      sectionName: tls-passthrough
+  hostnames:
+    - ssl-passthrough-test.gateway.local
+  rules:
+    - backendRefs:
+        - name: passthrough-backend
+          port: 443

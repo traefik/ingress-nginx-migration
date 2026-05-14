@@ -1,0 +1,36 @@
+---
+# Migrated from ingress-nginx forward auth with deny endpoint (auth-url returns 401).
+# nginx.ingress.kubernetes.io/auth-url: "http://auth-server.default.svc.cluster.local/deny"
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-forward-auth-deny-test-forwardauth
+  namespace: default
+spec:
+  forwardAuth:
+    address: "http://auth-server.default.svc.cluster.local/deny"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-forward-auth-deny-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - forward-auth-deny-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-forward-auth-deny-test-forwardauth
+      backendRefs:
+        - name: backend
+          port: 80

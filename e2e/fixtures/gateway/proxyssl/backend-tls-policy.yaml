@@ -1,0 +1,32 @@
+---
+# Shared BackendTLSPolicy for all proxy-ssl tests.
+# IMPORTANT: BackendTLSPolicy is per-service, not per-route. Multiple policies
+# targeting the same service cause a conflict in Traefik (only the first wins).
+# All proxy-ssl tests share this single policy for https-backend:443.
+#
+# Uses caCertificateRefs (not wellKnownCACertificates) because the backend
+# uses a self-signed certificate signed by a test CA. The CA cert must be
+# provided in ConfigMap "proxy-ssl-ca-configmap" with key "ca.crt".
+#
+# Migration notes:
+# - proxy-ssl-secret (client cert presentation) has no Gateway API equivalent.
+# - proxy-ssl-verify: off is not directly supported; either a CA must be provided
+#   or wellKnownCACertificates: System must be used (Traefik skips verification
+#   when the cert chain is not validated against the supplied refs).
+# - proxy-ssl-name and proxy-ssl-server-name map to the hostname field (SNI + auth).
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: gateway-proxy-ssl-backend-tls
+  namespace: default
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: https-backend
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: proxy-ssl-ca-configmap
+    hostname: https-backend.default.svc.cluster.local

@@ -1,0 +1,44 @@
+---
+# Migrated from: ssl-passthrough: "true" + force-ssl-redirect: "true" + backend-protocol: "HTTPS"
+# TLSRoute for the passthrough (TLS connections forwarded directly to the backend).
+# Note: backend-protocol: HTTPS is redundant with ssl-passthrough (no TLS termination
+# happens at the controller), so no BackendTLSPolicy is emitted.
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: gateway-ssl-passthrough-cert-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+      sectionName: tls-passthrough
+  hostnames:
+    - ssl-passthrough-cert-test.gateway.local
+  rules:
+    - backendRefs:
+        - name: passthrough-backend
+          port: 443
+---
+# force-ssl-redirect: "true": HTTP requests are redirected to HTTPS.
+# This HTTPRoute handles the HTTP to HTTPS redirect on the web listener.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-ssl-passthrough-cert-test-redirect
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+      sectionName: web
+  hostnames:
+    - ssl-passthrough-cert-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

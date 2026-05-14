@@ -1,0 +1,36 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-buffer-config-test-buffering
+  namespace: default
+spec:
+  buffering:
+    memRequestBodyBytes: 16384
+    memResponseBodyBytes: 65536
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-buffer-config-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - buffer-config-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-buffer-config-test-buffering
+      backendRefs:
+        - name: backend
+          port: 80

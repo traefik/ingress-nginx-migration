@@ -1,0 +1,59 @@
+---
+# Migrated from: from-to-www-redirect on www host
+# MIGRATION GAP: Original uses 308, redirectRegex only supports 301/302
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-wwwredir-www-test-redirect
+  namespace: default
+spec:
+  redirectRegex:
+    regex: "^https?://wwwredir-www-test\\.gateway\\.local(.*)"
+    replacement: "http://www.wwwredir-www-test.gateway.local${1}"
+    permanent: true
+---
+# Primary route: serves traffic normally
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-wwwredir-www-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - www.wwwredir-www-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: backend
+          port: 80
+---
+# Redirect route: non-www -> www
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-wwwredir-www-test-redirect
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - wwwredir-www-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-wwwredir-www-test-redirect
+      backendRefs:
+        - name: backend
+          port: 80

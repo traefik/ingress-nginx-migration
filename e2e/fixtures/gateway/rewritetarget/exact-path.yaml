@@ -1,0 +1,25 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-exact-path-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - exact-path-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /original
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /rewritten
+      backendRefs:
+        - name: backend
+          port: 80

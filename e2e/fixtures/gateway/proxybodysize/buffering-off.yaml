@@ -1,0 +1,22 @@
+---
+# proxy-buffering: off / proxy-request-buffering: off have no Gateway API or
+# Traefik Middleware equivalent (buffering middleware only exposes byte
+# thresholds, not on/off). Plain HTTPRoute used.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-buffering-off-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - buffering-off-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: backend
+          port: 80

@@ -1,0 +1,39 @@
+---
+# Migrated: temporal-redirect + temporal-redirect-code: "307"
+# Gateway API only supports 301/302. Using Traefik redirectRegex middleware for 307.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-temp-redirect-307-test-redirect
+  namespace: default
+spec:
+  redirectRegex:
+    regex: "^https?://[^/]+(.*)"
+    replacement: "https://example.com/temp-307"
+    permanent: false
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-temp-redirect-307-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - temp-redirect-307-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-temp-redirect-307-test-redirect
+      backendRefs:
+        - name: backend
+          port: 80

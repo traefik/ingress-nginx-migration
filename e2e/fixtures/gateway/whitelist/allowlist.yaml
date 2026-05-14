@@ -1,0 +1,36 @@
+---
+# Migrated: allowlist-source-range: "0.0.0.0/0" -> IPAllowList allowing all
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-allowlist-test-ipallow
+  namespace: default
+spec:
+  ipAllowList:
+    sourceRange:
+      - "0.0.0.0/0"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-allowlist-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - allowlist-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-allowlist-test-ipallow
+      backendRefs:
+        - name: backend
+          port: 80

@@ -1,0 +1,36 @@
+---
+# Migrated: whitelist-source-range: "0.0.0.0/0" -> IPAllowList allowing all
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-whitelist-allow-test-ipallow
+  namespace: default
+spec:
+  ipAllowList:
+    sourceRange:
+      - "0.0.0.0/0"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-whitelist-allow-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - whitelist-allow-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-whitelist-allow-test-ipallow
+      backendRefs:
+        - name: backend
+          port: 80

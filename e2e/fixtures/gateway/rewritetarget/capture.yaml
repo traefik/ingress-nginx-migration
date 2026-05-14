@@ -1,0 +1,35 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-rewrite-capture-test-rewrite
+  namespace: default
+spec:
+  replacePathRegex:
+    regex: "^/api(/|$)(.*)"
+    replacement: "/$2"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-rewrite-capture-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - rewrite-capture-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-rewrite-capture-test-rewrite
+      backendRefs:
+        - name: backend
+          port: 80

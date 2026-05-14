@@ -1,0 +1,40 @@
+---
+# Migrated from ingress-nginx forward auth with auth-response-headers forwarding.
+# nginx.ingress.kubernetes.io/auth-url: "http://auth-server.default.svc.cluster.local/"
+# nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-User,X-Auth-Role"
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-forward-auth-headers-test-forwardauth
+  namespace: default
+spec:
+  forwardAuth:
+    address: "http://auth-server.default.svc.cluster.local/"
+    authResponseHeaders:
+      - X-Auth-User
+      - X-Auth-Role
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-forward-auth-headers-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - forward-auth-headers-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-forward-auth-headers-test-forwardauth
+      backendRefs:
+        - name: backend
+          port: 80
