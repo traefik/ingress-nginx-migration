@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,33 +20,41 @@ const (
 	retryDefaultIngressName = "retry-default-test"
 	retryDefaultTraefikHost = retryDefaultIngressName + ".traefik.local"
 	retryDefaultNginxHost   = retryDefaultIngressName + ".nginx.local"
+	retryDefaultGatewayHost = retryDefaultIngressName + ".gateway.local"
 
 	retryDisabledIngressName = "retry-disabled-test"
 	retryDisabledTraefikHost = retryDisabledIngressName + ".traefik.local"
 	retryDisabledNginxHost   = retryDisabledIngressName + ".nginx.local"
+	retryDisabledGatewayHost = retryDisabledIngressName + ".gateway.local"
 
 	retryCustomIngressName = "retry-custom-test"
 	retryCustomTraefikHost = retryCustomIngressName + ".traefik.local"
 	retryCustomNginxHost   = retryCustomIngressName + ".nginx.local"
+	retryCustomGatewayHost = retryCustomIngressName + ".gateway.local"
 
 	retryTriesIngressName = "retry-tries-test"
 	retryTriesTraefikHost = retryTriesIngressName + ".traefik.local"
 	retryTriesNginxHost   = retryTriesIngressName + ".nginx.local"
+	retryTriesGatewayHost = retryTriesIngressName + ".gateway.local"
 
 	retryTimeoutIngressName = "retry-timeout-test"
 	retryTimeoutTraefikHost = retryTimeoutIngressName + ".traefik.local"
 	retryTimeoutNginxHost   = retryTimeoutIngressName + ".nginx.local"
+	retryTimeoutGatewayHost = retryTimeoutIngressName + ".gateway.local"
 
 	retryBodyLimitIngressName = "retry-body-limit-test"
 	retryBodyLimitTraefikHost = retryBodyLimitIngressName + ".traefik.local"
 	retryBodyLimitNginxHost   = retryBodyLimitIngressName + ".nginx.local"
+	retryBodyLimitGatewayHost = retryBodyLimitIngressName + ".gateway.local"
 
 	retryFlakyOnIngressName  = "retry-flaky-on-test"
 	retryFlakyOnTraefikHost  = retryFlakyOnIngressName + ".traefik.local"
 	retryFlakyOnNginxHost    = retryFlakyOnIngressName + ".nginx.local"
+	retryFlakyOnGatewayHost  = retryFlakyOnIngressName + ".gateway.local"
 	retryFlakyOffIngressName = "retry-flaky-off-test"
 	retryFlakyOffTraefikHost = retryFlakyOffIngressName + ".traefik.local"
 	retryFlakyOffNginxHost   = retryFlakyOffIngressName + ".nginx.local"
+	retryFlakyOffGatewayHost = retryFlakyOffIngressName + ".gateway.local"
 )
 
 type RetrySuite struct {
@@ -182,6 +191,14 @@ func (s *RetrySuite) SetupSuite() {
 	})
 	require.NoError(s.T(), err, "deploy retry-flaky-off ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	// Note: proxy-next-upstream has no direct Gateway API equivalent — plain HTTPRoutes only.
+	gwDir := filepath.Join(fixturesDir, "gateway", "retry")
+	for _, f := range []string{"default.yaml", "disabled.yaml", "custom.yaml", "tries.yaml", "timeout.yaml", "body-limit.yaml", "flaky-on.yaml", "flaky-off.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), retryDefaultTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), retryDefaultNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), retryDisabledTraefikHost, 20, 1*time.Second)
@@ -200,6 +217,14 @@ func (s *RetrySuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), retryFlakyOnNginxHost, 60, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), retryFlakyOffTraefikHost, 60, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), retryFlakyOffNginxHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), retryDefaultGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), retryDisabledGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), retryCustomGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), retryTriesGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), retryTimeoutGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), retryBodyLimitGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), retryFlakyOnGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), retryFlakyOffGatewayHost, 60, 1*time.Second)
 }
 
 func (s *RetrySuite) TearDownSuite() {
@@ -221,6 +246,11 @@ func (s *RetrySuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(retryFlakyOffIngressName)
 	for _, cluster := range []*Cluster{s.traefik, s.nginx} {
 		_ = cluster.Kubectl("delete", "-f", fmt.Sprintf("%s/flaky-backend.yaml", fixturesDir), "-n", cluster.TestNamespace, "--ignore-not-found")
+	}
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "retry")
+	for _, f := range []string{"default.yaml", "disabled.yaml", "custom.yaml", "tries.yaml", "timeout.yaml", "body-limit.yaml", "flaky-on.yaml", "flaky-off.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
 	}
 }
 
@@ -289,6 +319,10 @@ func (s *RetrySuite) TestDefaultRetryStatusMatch() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with default retry config")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryDefaultGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestDefaultRetryOnSubpath() {
@@ -296,6 +330,10 @@ func (s *RetrySuite) TestDefaultRetryOnSubpath() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for subpath with default retry")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryDefaultGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestDefaultRetryPOST() {
@@ -303,6 +341,10 @@ func (s *RetrySuite) TestDefaultRetryPOST() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for POST with default retry")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryDefaultGatewayHost, http.MethodPost, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryDisabledStatusMatch() {
@@ -310,6 +352,10 @@ func (s *RetrySuite) TestRetryDisabledStatusMatch() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with retry disabled")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryDisabledGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryDisabledOnSubpath() {
@@ -317,6 +363,10 @@ func (s *RetrySuite) TestRetryDisabledOnSubpath() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for subpath with retry disabled")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryDisabledGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryDisabledPOST() {
@@ -324,6 +374,10 @@ func (s *RetrySuite) TestRetryDisabledPOST() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for POST with retry disabled")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryDisabledGatewayHost, http.MethodPost, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryDisabledPreservesHeaders() {
@@ -336,6 +390,10 @@ func (s *RetrySuite) TestRetryDisabledPreservesHeaders() {
 		"traefik should preserve custom header")
 	assert.Equal(s.T(), "retry-disabled", nginxResp.RequestHeaders["X-Custom-Test"],
 		"nginx should preserve custom header")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryDisabledGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestCustomRetryStatusMatch() {
@@ -343,6 +401,10 @@ func (s *RetrySuite) TestCustomRetryStatusMatch() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with custom retry config")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryCustomGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestCustomRetryOnSubpath() {
@@ -350,6 +412,10 @@ func (s *RetrySuite) TestCustomRetryOnSubpath() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for subpath with custom retry")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryCustomGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestCustomRetryPOST() {
@@ -357,6 +423,10 @@ func (s *RetrySuite) TestCustomRetryPOST() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for POST with custom retry")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryCustomGatewayHost, http.MethodPost, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestCustomRetryPreservesHeaders() {
@@ -368,6 +438,10 @@ func (s *RetrySuite) TestCustomRetryPreservesHeaders() {
 		"traefik should preserve custom header")
 	assert.Equal(s.T(), "custom-retry", nginxResp.RequestHeaders["X-Custom-Test"],
 		"nginx should preserve custom header")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryCustomGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryTriesStatusMatch() {
@@ -375,6 +449,10 @@ func (s *RetrySuite) TestRetryTriesStatusMatch() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with tries=1")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryTriesGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryTriesOnSubpath() {
@@ -382,6 +460,10 @@ func (s *RetrySuite) TestRetryTriesOnSubpath() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for subpath with tries=1")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryTriesGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryTriesPOST() {
@@ -389,6 +471,10 @@ func (s *RetrySuite) TestRetryTriesPOST() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for POST with tries=1")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryTriesGatewayHost, http.MethodPost, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryTimeoutStatusMatch() {
@@ -396,6 +482,10 @@ func (s *RetrySuite) TestRetryTimeoutStatusMatch() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with retry timeout=5")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryTimeoutGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryTimeoutOnSubpath() {
@@ -403,6 +493,10 @@ func (s *RetrySuite) TestRetryTimeoutOnSubpath() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for subpath with retry timeout")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryTimeoutGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryTimeoutPOST() {
@@ -410,6 +504,10 @@ func (s *RetrySuite) TestRetryTimeoutPOST() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for POST with retry timeout")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryTimeoutGatewayHost, http.MethodPost, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryTimeoutPreservesHeaders() {
@@ -421,6 +519,10 @@ func (s *RetrySuite) TestRetryTimeoutPreservesHeaders() {
 		"traefik should preserve custom header")
 	assert.Equal(s.T(), "retry-timeout", nginxResp.RequestHeaders["X-Custom-Test"],
 		"nginx should preserve custom header")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryTimeoutGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 // makeRequestWithBody sends a request with a body to the given host against
@@ -464,6 +566,12 @@ func (s *RetrySuite) TestRetryBodyLimitWithinLimit() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 for body within proxy-body-size=1k")
+
+	// Gateway API migration: Middleware.buffering maxRequestBodyBytes=1024 (body-limit.yaml).
+	gatewayResp := s.makeRequestWithBody(s.gateway, retryBodyLimitGatewayHost, http.MethodPost, "/", body)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) TestRetryBodyLimitExceedsLimit() {
@@ -477,6 +585,12 @@ func (s *RetrySuite) TestRetryBodyLimitExceedsLimit() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusRequestEntityTooLarge, nginxResp.StatusCode,
 		"expected 413 when body exceeds proxy-body-size=1k")
+
+	// Gateway API migration: Middleware.buffering maxRequestBodyBytes=1024 (body-limit.yaml).
+	gatewayResp := s.makeRequestWithBody(s.gateway, retryBodyLimitGatewayHost, http.MethodPost, "/", body)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch")
 }
 
 func (s *RetrySuite) resetFlaky(c *Cluster, host string) {
@@ -513,6 +627,14 @@ func (s *RetrySuite) TestRetryFlakyBufferingOnRecovers() {
 		"expected 200 after 2 failed + 1 successful upstream attempt")
 	assert.Equal(s.T(), 3, traefikCount, "traefik should hit backend 3 times (2 fails + 1 success)")
 	assert.Equal(s.T(), 3, nginxCount, "nginx should hit backend 3 times (2 fails + 1 success)")
+
+	// Gateway API migration: plain HTTPRoute without retry middleware (flaky-on.yaml).
+	// MIGRATION GAP: automatic retry requires an explicit Middleware.retry CRD.
+	s.resetFlaky(s.gateway, retryFlakyOnGatewayHost)
+	gatewayResp := s.makeRequestWithBody(s.gateway, retryFlakyOnGatewayHost, http.MethodPut, "/flaky?fail=2", body)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch — MIGRATION GAP: retry requires Middleware.retry CRD")
 }
 
 func (s *RetrySuite) TestRetryFlakyBufferingOffSuppresses() {
@@ -536,6 +658,14 @@ func (s *RetrySuite) TestRetryFlakyBufferingOffSuppresses() {
 	// count=0 (request skipped) or count=3 (retry fired anyway).
 	assert.Equal(s.T(), 1, traefikCount, "traefik should hit backend exactly once (no retry, no skip)")
 	assert.Equal(s.T(), 1, nginxCount, "nginx should hit backend exactly once (no retry, no skip)")
+
+	// Gateway API migration: plain HTTPRoute without retry (flaky-off.yaml).
+	// proxy-request-buffering has no GW API equivalent; no retry fires by default.
+	s.resetFlaky(s.gateway, retryFlakyOffGatewayHost)
+	gatewayResp := s.makeRequestWithBody(s.gateway, retryFlakyOffGatewayHost, http.MethodPut, "/flaky?fail=2", body)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch")
 }
 
 // proxy-request-buffering=off only suppresses retry when there is a body
@@ -557,4 +687,12 @@ func (s *RetrySuite) TestRetryFlakyBufferingOffNoBodyRecovers() {
 		"expected 200 after retry recovers on a GET with buffering off")
 	assert.Equal(s.T(), 3, traefikCount, "traefik should hit backend 3 times (2 fails + 1 success)")
 	assert.Equal(s.T(), 3, nginxCount, "nginx should hit backend 3 times (2 fails + 1 success)")
+
+	// Gateway API migration: plain HTTPRoute without retry (flaky-off.yaml).
+	// MIGRATION GAP: no retry middleware configured, GET will not be retried.
+	s.resetFlaky(s.gateway, retryFlakyOffGatewayHost)
+	gatewayResp := s.gateway.MakeRequest(s.T(), retryFlakyOffGatewayHost, http.MethodGet, "/flaky?fail=2", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch — MIGRATION GAP: retry requires Middleware.retry CRD")
 }

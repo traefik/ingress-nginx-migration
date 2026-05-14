@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,17 +13,20 @@ import (
 )
 
 const (
-	affinityDefaultIngressName = "affinity-default-test"
-	affinityDefaultTraefikHost = affinityDefaultIngressName + ".traefik.local"
-	affinityDefaultNginxHost   = affinityDefaultIngressName + ".nginx.local"
+	affinityDefaultIngressName  = "affinity-default-test"
+	affinityDefaultTraefikHost  = affinityDefaultIngressName + ".traefik.local"
+	affinityDefaultNginxHost    = affinityDefaultIngressName + ".nginx.local"
+	affinityDefaultGatewayHost  = affinityDefaultIngressName + ".gateway.local"
 
-	affinityCustomIngressName = "affinity-custom-test"
-	affinityCustomTraefikHost = affinityCustomIngressName + ".traefik.local"
-	affinityCustomNginxHost   = affinityCustomIngressName + ".nginx.local"
+	affinityCustomIngressName  = "affinity-custom-test"
+	affinityCustomTraefikHost  = affinityCustomIngressName + ".traefik.local"
+	affinityCustomNginxHost    = affinityCustomIngressName + ".nginx.local"
+	affinityCustomGatewayHost  = affinityCustomIngressName + ".gateway.local"
 
-	affinityExtendedIngressName = "affinity-extended-test"
-	affinityExtendedTraefikHost = affinityExtendedIngressName + ".traefik.local"
-	affinityExtendedNginxHost   = affinityExtendedIngressName + ".nginx.local"
+	affinityExtendedIngressName  = "affinity-extended-test"
+	affinityExtendedTraefikHost  = affinityExtendedIngressName + ".traefik.local"
+	affinityExtendedNginxHost    = affinityExtendedIngressName + ".nginx.local"
+	affinityExtendedGatewayHost  = affinityExtendedIngressName + ".gateway.local"
 )
 
 type SessionAffinitySuite struct {
@@ -77,12 +81,26 @@ func (s *SessionAffinitySuite) SetupSuite() {
 	err = s.nginx.DeployIngress(affinityExtendedIngressName, affinityExtendedNginxHost, extendedAnnotations)
 	require.NoError(s.T(), err, "deploy extended affinity ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents using TraefikService sticky cookie CRDs.
+	err = s.gateway.DeployGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "default.yaml"))
+	require.NoError(s.T(), err, "deploy default affinity gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "custom.yaml"))
+	require.NoError(s.T(), err, "deploy custom affinity gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "extended.yaml"))
+	require.NoError(s.T(), err, "deploy extended affinity gateway fixture")
+
 	s.traefik.WaitForIngressReady(s.T(), affinityDefaultTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), affinityDefaultNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), affinityCustomTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), affinityCustomNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), affinityExtendedTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), affinityExtendedNginxHost, 20, 1*time.Second)
+	// Gateway API routes need more time — CRD provider must publish TraefikService config first.
+	s.gateway.WaitForIngressReady(s.T(), affinityDefaultGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), affinityCustomGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), affinityExtendedGatewayHost, 60, 1*time.Second)
 }
 
 func (s *SessionAffinitySuite) TearDownSuite() {
@@ -92,6 +110,9 @@ func (s *SessionAffinitySuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(affinityCustomIngressName)
 	_ = s.traefik.DeleteIngress(affinityExtendedIngressName)
 	_ = s.nginx.DeleteIngress(affinityExtendedIngressName)
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "default.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "custom.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "extended.yaml"))
 }
 
 // requestDefault makes the same HTTP request against both clusters using the default affinity ingress.
@@ -142,6 +163,13 @@ func (s *SessionAffinitySuite) TestDefaultCookiePresent() {
 
 	assert.NotEmpty(s.T(), traefikCookie, "traefik should set INGRESSCOOKIE")
 	assert.NotEmpty(s.T(), nginxCookie, "nginx should set INGRESSCOOKIE")
+
+	// Gateway API migration: TraefikService sticky cookie should also set INGRESSCOOKIE.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityDefaultGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "INGRESSCOOKIE")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set INGRESSCOOKIE")
 }
 
 func (s *SessionAffinitySuite) TestDefaultCookiePath() {
@@ -153,6 +181,13 @@ func (s *SessionAffinitySuite) TestDefaultCookiePath() {
 	// Default path should be "/".
 	assert.Contains(s.T(), traefikCookie, "Path=/", "traefik cookie should have default Path=/")
 	assert.Contains(s.T(), nginxCookie, "Path=/", "nginx cookie should have default Path=/")
+
+	// Gateway API migration: default cookie path should be "/".
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityDefaultGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "INGRESSCOOKIE")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set INGRESSCOOKIE")
+	assert.Contains(s.T(), gatewayCookie, "Path=/", "gateway cookie should have default Path=/")
 }
 
 func (s *SessionAffinitySuite) TestCustomCookieName() {
@@ -165,6 +200,13 @@ func (s *SessionAffinitySuite) TestCustomCookieName() {
 
 	assert.NotEmpty(s.T(), traefikCookie, "traefik should set SERVERID cookie")
 	assert.NotEmpty(s.T(), nginxCookie, "nginx should set SERVERID cookie")
+
+	// Gateway API migration: custom cookie name SERVERID should be set.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityCustomGatewayHost, http.MethodGet, "/app", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "SERVERID")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set SERVERID cookie")
 }
 
 func (s *SessionAffinitySuite) TestCustomCookieSecure() {
@@ -175,6 +217,13 @@ func (s *SessionAffinitySuite) TestCustomCookieSecure() {
 
 	assert.Contains(s.T(), traefikCookie, "Secure", "traefik cookie should have Secure flag")
 	assert.Contains(s.T(), nginxCookie, "Secure", "nginx cookie should have Secure flag")
+
+	// Gateway API migration: Secure flag should be present on the SERVERID cookie.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityCustomGatewayHost, http.MethodGet, "/app", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "SERVERID")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set SERVERID cookie")
+	assert.Contains(s.T(), gatewayCookie, "Secure", "gateway cookie should have Secure flag")
 }
 
 func (s *SessionAffinitySuite) TestCustomCookiePath() {
@@ -185,6 +234,13 @@ func (s *SessionAffinitySuite) TestCustomCookiePath() {
 
 	assert.Contains(s.T(), traefikCookie, "Path=/app", "traefik cookie should have Path=/app")
 	assert.Contains(s.T(), nginxCookie, "Path=/app", "nginx cookie should have Path=/app")
+
+	// Gateway API migration: cookie path /app should be set.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityCustomGatewayHost, http.MethodGet, "/app", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "SERVERID")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set SERVERID cookie")
+	assert.Contains(s.T(), gatewayCookie, "Path=/app", "gateway cookie should have Path=/app")
 }
 
 func (s *SessionAffinitySuite) TestCustomCookieSameSite() {
@@ -195,6 +251,15 @@ func (s *SessionAffinitySuite) TestCustomCookieSameSite() {
 
 	assert.Contains(s.T(), traefikCookie, "SameSite=Strict", "traefik cookie should have SameSite=Strict")
 	assert.Contains(s.T(), nginxCookie, "SameSite=Strict", "nginx cookie should have SameSite=Strict")
+
+	// Gateway API migration: SameSite=Strict should be present.
+	// Note: Traefik CRD uses lowercase sameSite value ("strict") but the HTTP
+	// Set-Cookie header is emitted as "SameSite=Strict" by the Go HTTP stack.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityCustomGatewayHost, http.MethodGet, "/app", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "SERVERID")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set SERVERID cookie")
+	assert.Contains(s.T(), strings.ToLower(gatewayCookie), "samesite=strict", "gateway cookie should have SameSite=Strict")
 }
 
 func (s *SessionAffinitySuite) TestCustomCookieMaxAge() {
@@ -205,6 +270,13 @@ func (s *SessionAffinitySuite) TestCustomCookieMaxAge() {
 
 	assert.Contains(s.T(), traefikCookie, "Max-Age=3600", "traefik cookie should have Max-Age=3600")
 	assert.Contains(s.T(), nginxCookie, "Max-Age=3600", "nginx cookie should have Max-Age=3600")
+
+	// Gateway API migration: Max-Age=3600 should be present.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityCustomGatewayHost, http.MethodGet, "/app", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "SERVERID")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set SERVERID cookie")
+	assert.Contains(s.T(), gatewayCookie, "Max-Age=3600", "gateway cookie should have Max-Age=3600")
 }
 
 func (s *SessionAffinitySuite) TestStickySessionWithCookie() {
@@ -232,6 +304,18 @@ func (s *SessionAffinitySuite) TestStickySessionWithCookie() {
 
 	assert.Equal(s.T(), http.StatusOK, traefikResp2.StatusCode, "traefik should return 200 with cookie")
 	assert.Equal(s.T(), http.StatusOK, nginxResp2.StatusCode, "nginx should return 200 with cookie")
+
+	// Gateway API migration: first request sets INGRESSCOOKIE, second request with cookie succeeds.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityDefaultGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "INGRESSCOOKIE")
+	require.NotEmpty(s.T(), gatewayCookie, "gateway should set INGRESSCOOKIE")
+
+	gatewayValue := strings.SplitN(gatewayCookie, ";", 2)[0]
+	gatewayResp2 := s.gateway.MakeRequest(s.T(), affinityDefaultGatewayHost, http.MethodGet, "/",
+		map[string]string{"Cookie": gatewayValue}, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp2, "gateway response with cookie should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp2.StatusCode, "gateway should return 200 with cookie")
 }
 
 // requestExtended makes the same HTTP request against both clusters using the extended affinity ingress.
@@ -260,6 +344,16 @@ func (s *SessionAffinitySuite) TestExtendedCookieDomain() {
 
 	assert.Contains(s.T(), traefikCookie, "Domain=.example.com", "traefik cookie should have Domain=.example.com")
 	assert.Contains(s.T(), nginxCookie, "Domain=.example.com", "nginx cookie should have Domain=.example.com")
+
+	// Gateway API migration: Traefik's sticky cookie does not support domain directly.
+	// This is a known migration gap — the EXTSESSION cookie is set but without Domain=.example.com.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityExtendedGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "EXTSESSION")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set EXTSESSION cookie")
+	// Migration gap: domain is not supported by TraefikService sticky cookie.
+	// assert.Contains(s.T(), gatewayCookie, "Domain=.example.com", "gateway cookie domain not supported")
 }
 
 func (s *SessionAffinitySuite) TestExtendedCookieExpires() {
@@ -279,4 +373,13 @@ func (s *SessionAffinitySuite) TestExtendedCookieExpires() {
 
 	assert.True(s.T(), traefikHasExpiry, "traefik cookie should have Expires or Max-Age set")
 	assert.True(s.T(), nginxHasExpiry, "nginx cookie should have Expires or Max-Age set")
+
+	// Gateway API migration: expires is mapped to maxAge: 172800 in the TraefikService sticky cookie.
+	gatewayResp := s.gateway.MakeRequest(s.T(), affinityExtendedGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "EXTSESSION")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set EXTSESSION cookie")
+	gatewayHasExpiry := strings.Contains(gatewayCookie, "Expires=") || strings.Contains(gatewayCookie, "Max-Age=")
+	assert.True(s.T(), gatewayHasExpiry, "gateway cookie should have Expires or Max-Age set")
+	assert.Contains(s.T(), gatewayCookie, "Max-Age=172800", "gateway cookie should have Max-Age=172800")
 }

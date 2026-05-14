@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"path/filepath"
 	"math/big"
 	"net/http"
 	"testing"
@@ -29,6 +30,9 @@ const (
 	sslPassthroughCertIngressName = "ssl-passthrough-cert-test"
 	sslPassthroughCertTraefikHost = sslPassthroughCertIngressName + ".traefik.local"
 	sslPassthroughCertNginxHost   = sslPassthroughCertIngressName + ".nginx.local"
+
+	sslPassthroughGatewayHost     = sslPassthroughIngressName + ".gateway.local"
+	sslPassthroughCertGatewayHost = sslPassthroughCertIngressName + ".gateway.local"
 
 	passthroughBackendName          = "passthrough-backend"
 	passthroughBackendConfigMapName = "passthrough-backend-config"
@@ -51,6 +55,7 @@ type SSLPassthroughSuite struct {
 	certs        sslPassthroughCerts
 	traefikHTTPS string
 	nginxHTTPS   string
+	gatewayHTTPS string
 }
 
 func TestSSLPassthroughSuite(t *testing.T) {
@@ -62,6 +67,7 @@ func (s *SSLPassthroughSuite) SetupSuite() {
 
 	s.traefikHTTPS = fmt.Sprintf("%s:%s", s.traefik.Host, s.traefik.PortHTTPS)
 	s.nginxHTTPS = fmt.Sprintf("%s:%s", s.nginx.Host, s.nginx.PortHTTPS)
+	s.gatewayHTTPS = fmt.Sprintf("%s:%s", s.gateway.Host, s.gateway.PortHTTPS)
 
 	// Generate backend server cert with known CN and SANs.
 	certs, err := generatePassthroughCerts()
@@ -120,6 +126,13 @@ func (s *SSLPassthroughSuite) SetupSuite() {
 	})
 	require.NoError(s.T(), err, "deploy ssl-passthrough ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents (TLSRoute).
+	gwDir := filepath.Join(fixturesDir, "gateway", "sslpassthrough")
+	for _, f := range []string{"passthrough.yaml", "passthrough-cert.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	// Give the controllers time to pick up the passthrough config.
 	// ssl-passthrough is handled differently (TCP-level), so WaitForIngressReady (HTTP probe) won't work.
 	time.Sleep(10 * time.Second)
@@ -128,6 +141,13 @@ func (s *SSLPassthroughSuite) SetupSuite() {
 func (s *SSLPassthroughSuite) TearDownSuite() {
 	_ = s.traefik.DeleteIngress(sslPassthroughIngressName)
 	_ = s.nginx.DeleteIngress(sslPassthroughIngressName)
+	_ = s.traefik.DeleteIngress(sslPassthroughCertIngressName)
+	_ = s.nginx.DeleteIngress(sslPassthroughCertIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "sslpassthrough")
+	for _, f := range []string{"passthrough.yaml", "passthrough-cert.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 
 	_ = s.traefik.DeleteSecret(passthroughBackendTLSSecretName)
 	_ = s.traefik.DeleteConfigMap(passthroughBackendConfigMapName)
@@ -271,6 +291,8 @@ func generatePassthroughCerts() (sslPassthroughCerts, error) {
 		DNSNames: []string{
 			sslPassthroughTraefikHost,
 			sslPassthroughNginxHost,
+			sslPassthroughGatewayHost,
+			sslPassthroughCertGatewayHost,
 			"passthrough-backend",
 			"passthrough-backend.default.svc.cluster.local",
 		},
@@ -310,6 +332,11 @@ func (s *SSLPassthroughSuite) TestSSLPassthroughCertificateIsFromBackend() {
 		"traefik: TLS certificate CN should be from the backend (passthrough)")
 	assert.Equal(s.T(), passthroughBackendCN, nginxCN,
 		"nginx: TLS certificate CN should be from the backend (passthrough)")
+
+	gatewayResp, gatewayCN := makePassthroughTLSRequest(s.T(), s.gatewayHTTPS, sslPassthroughGatewayHost, 10, 2*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), passthroughBackendCN, gatewayCN,
+		"gateway migration: TLS certificate CN should be from the backend (passthrough)")
 }
 
 func (s *SSLPassthroughSuite) TestSSLPassthroughReturnsOK() {
@@ -322,6 +349,11 @@ func (s *SSLPassthroughSuite) TestSSLPassthroughReturnsOK() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 with ssl-passthrough")
+
+	gatewayResp, _ := makePassthroughTLSRequest(s.T(), s.gatewayHTTPS, sslPassthroughGatewayHost, 10, 2*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch")
 }
 
 func (s *SSLPassthroughSuite) TestSSLPassthroughResponseBody() {
@@ -336,6 +368,11 @@ func (s *SSLPassthroughSuite) TestSSLPassthroughResponseBody() {
 		"traefik: response body should come from the passthrough backend")
 	assert.Contains(s.T(), nginxResp.Body, "passthrough-backend-ok",
 		"nginx: response body should come from the passthrough backend")
+
+	gatewayResp, _ := makePassthroughTLSRequest(s.T(), s.gatewayHTTPS, sslPassthroughGatewayHost, 10, 2*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Contains(s.T(), gatewayResp.Body, "passthrough-backend-ok",
+		"gateway migration: response body should come from the passthrough backend")
 }
 
 // This test reproduces a setup with these annotations.
@@ -366,4 +403,16 @@ func (s *SSLPassthroughSuite) TestSSLPassthroughCertificateWithAnnotations() {
 
 	assert.Equal(s.T(), http.StatusPermanentRedirect, traefikResp.StatusCode, "traefik: should be redirected to HTTPS URL")
 	assert.Equal(s.T(), http.StatusPermanentRedirect, nginxResp.StatusCode, "nginx: should be redirected to HTTPS URL")
+
+	// Gateway: TLS passthrough should also show backend cert CN.
+	gatewayResp, gatewayCN := makePassthroughTLSRequest(s.T(), s.gatewayHTTPS, sslPassthroughCertGatewayHost, 10, 2*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), passthroughBackendCN, gatewayCN,
+		"gateway migration: TLS certificate CN should be from the backend (passthrough)")
+
+	// Gateway: HTTP request should redirect to HTTPS (force-ssl-redirect via HTTPRoute).
+	gatewayHTTPResp := s.gateway.MakeRequest(s.T(), sslPassthroughCertGatewayHost, http.MethodGet, "/", nil, 10, 2*time.Second)
+	require.NotNil(s.T(), gatewayHTTPResp, "gateway HTTP response should not be nil")
+	assert.Equal(s.T(), http.StatusMovedPermanently, gatewayHTTPResp.StatusCode,
+		"gateway migration: HTTP should redirect to HTTPS")
 }

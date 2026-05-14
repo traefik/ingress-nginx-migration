@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,10 +19,13 @@ const (
 
 	sslRedirectTraefikHost         = sslRedirectIngressName + ".traefik.local"
 	sslRedirectNginxHost           = sslRedirectIngressName + ".nginx.local"
+	sslRedirectGatewayHost         = sslRedirectIngressName + ".gateway.local"
 	sslNoRedirectTraefikHost       = sslNoRedirectIngressName + ".traefik.local"
 	sslNoRedirectNginxHost         = sslNoRedirectIngressName + ".nginx.local"
+	sslNoRedirectGatewayHost       = sslNoRedirectIngressName + ".gateway.local"
 	sslRedirectExplicitTraefikHost = sslRedirectExplicitIngressName + ".traefik.local"
 	sslRedirectExplicitNginxHost   = sslRedirectExplicitIngressName + ".nginx.local"
+	sslRedirectExplicitGatewayHost = sslRedirectExplicitIngressName + ".gateway.local"
 )
 
 type SSLRedirectSuite struct {
@@ -70,12 +74,22 @@ func (s *SSLRedirectSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(sslRedirectExplicitIngressName, sslRedirectExplicitNginxHost, explicitAnnotations)
 	require.NoError(s.T(), err, "deploy ssl-redirect-explicit ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "sslredirect")
+	for _, f := range []string{"redirect.yaml", "no-redirect.yaml", "explicit.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), sslRedirectTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), sslRedirectNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), sslNoRedirectTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), sslNoRedirectNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), sslRedirectExplicitTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), sslRedirectExplicitNginxHost, 20, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), sslRedirectGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), sslNoRedirectGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), sslRedirectExplicitGatewayHost, 60, 1*time.Second)
 }
 
 func (s *SSLRedirectSuite) TearDownSuite() {
@@ -85,6 +99,11 @@ func (s *SSLRedirectSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(sslNoRedirectIngressName)
 	_ = s.traefik.DeleteIngress(sslRedirectExplicitIngressName)
 	_ = s.nginx.DeleteIngress(sslRedirectExplicitIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "sslredirect")
+	for _, f := range []string{"redirect.yaml", "no-redirect.yaml", "explicit.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // redirectRequest makes the same HTTP request against both clusters using the ssl-redirect enabled ingress.
@@ -122,6 +141,11 @@ func (s *SSLRedirectSuite) TestSSLRedirectEnabled() {
 	// the Location header format independently.
 	assert.NotEmpty(s.T(), traefikResp.ResponseHeaders.Get("Location"), "traefik should have Location header")
 	assert.NotEmpty(s.T(), nginxResp.ResponseHeaders.Get("Location"), "nginx should have Location header")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), sslRedirectGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.NotEmpty(s.T(), gatewayResp.ResponseHeaders.Get("Location"), "gateway should have Location header")
 }
 
 func (s *SSLRedirectSuite) TestSSLRedirectLocationHeader() {
@@ -137,6 +161,13 @@ func (s *SSLRedirectSuite) TestSSLRedirectLocationHeader() {
 		"traefik Location should start with https://, got: %s", traefikLocation)
 	assert.True(s.T(), strings.HasPrefix(nginxLocation, "https://"),
 		"nginx Location should start with https://, got: %s", nginxLocation)
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), sslRedirectGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+	assert.NotEmpty(s.T(), gatewayLocation, "gateway Location header should be present")
+	assert.True(s.T(), strings.HasPrefix(gatewayLocation, "https://"),
+		"gateway Location should start with https://, got: %s", gatewayLocation)
 }
 
 func (s *SSLRedirectSuite) TestSSLRedirectDisabled() {
@@ -149,6 +180,12 @@ func (s *SSLRedirectSuite) TestSSLRedirectDisabled() {
 		"traefik should not have Location header when ssl-redirect is disabled")
 	assert.Empty(s.T(), nginxResp.ResponseHeaders.Get("Location"),
 		"nginx should not have Location header when ssl-redirect is disabled")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), sslNoRedirectGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Empty(s.T(), gatewayResp.ResponseHeaders.Get("Location"),
+		"gateway should not have Location header when ssl-redirect is disabled")
 }
 
 func (s *SSLRedirectSuite) TestSSLRedirectPreservesPath() {
@@ -169,6 +206,15 @@ func (s *SSLRedirectSuite) TestSSLRedirectPreservesPath() {
 		"traefik Location should preserve path, got: %s", traefikLocation)
 	assert.True(s.T(), strings.HasSuffix(nginxLocation, "/some/path"),
 		"nginx Location should preserve path, got: %s", nginxLocation)
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), sslRedirectGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+	assert.NotEmpty(s.T(), gatewayLocation, "gateway Location header should be present")
+	assert.True(s.T(), strings.HasPrefix(gatewayLocation, "https://"),
+		"gateway Location should start with https://, got: %s", gatewayLocation)
+	assert.True(s.T(), strings.HasSuffix(gatewayLocation, "/some/path"),
+		"gateway Location should preserve path, got: %s", gatewayLocation)
 }
 
 // explicitRedirectRequest makes the same HTTP request against both clusters using the ssl-redirect explicit ingress.
@@ -196,6 +242,15 @@ func (s *SSLRedirectSuite) TestSSLRedirectExplicitWithoutTLS() {
 		"traefik should not redirect without TLS on the ingress")
 	assert.Empty(s.T(), nginxResp.ResponseHeaders.Get("Location"),
 		"nginx should not redirect without TLS on the ingress")
+
+	// Migration gap: Gateway API RequestRedirect always redirects regardless of TLS config.
+	// The Ingress ssl-redirect annotation only triggers when TLS is configured on the Ingress,
+	// but the migrated Gateway API HTTPRoute has an unconditional RequestRedirect filter.
+	// So the gateway will return 301 redirect while the Ingress returns 200.
+	gatewayResp := s.gateway.MakeRequest(s.T(), sslRedirectExplicitGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusMovedPermanently, gatewayResp.StatusCode,
+		"gateway migration gap: RequestRedirect always redirects, unlike ssl-redirect which requires TLS on the Ingress")
 }
 
 func (s *SSLRedirectSuite) TestSSLRedirectPreservesQueryString() {
@@ -211,4 +266,11 @@ func (s *SSLRedirectSuite) TestSSLRedirectPreservesQueryString() {
 		"traefik Location should preserve query string, got: %s", traefikLocation)
 	assert.True(s.T(), strings.HasSuffix(nginxLocation, "/path?key=value"),
 		"nginx Location should preserve query string, got: %s", nginxLocation)
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), sslRedirectGatewayHost, http.MethodGet, "/path?key=value", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+	assert.NotEmpty(s.T(), gatewayLocation, "gateway Location header should be present")
+	assert.True(s.T(), strings.HasSuffix(gatewayLocation, "/path?key=value"),
+		"gateway Location should preserve query string, got: %s", gatewayLocation)
 }

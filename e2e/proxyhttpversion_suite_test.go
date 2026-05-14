@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,6 +21,9 @@ const (
 	httpVersion11IngressName = "http-version-11-test"
 	httpVersion11TraefikHost = httpVersion11IngressName + ".traefik.local"
 	httpVersion11NginxHost   = httpVersion11IngressName + ".nginx.local"
+
+	httpVersionDefaultGatewayHost = httpVersionDefaultIngressName + ".gateway.local"
+	httpVersion11GatewayHost      = httpVersion11IngressName + ".gateway.local"
 )
 
 type ProxyHTTPVersionSuite struct {
@@ -51,10 +55,19 @@ func (s *ProxyHTTPVersionSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(httpVersion11IngressName, httpVersion11NginxHost, http11Annotations)
 	require.NoError(s.T(), err, "deploy http-version-1.1 ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "proxyhttpversion")
+	for _, f := range []string{"default.yaml", "http11.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), httpVersionDefaultTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), httpVersionDefaultNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), httpVersion11TraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), httpVersion11NginxHost, 20, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), httpVersionDefaultGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), httpVersion11GatewayHost, 60, 1*time.Second)
 }
 
 func (s *ProxyHTTPVersionSuite) TearDownSuite() {
@@ -62,6 +75,11 @@ func (s *ProxyHTTPVersionSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(httpVersionDefaultIngressName)
 	_ = s.traefik.DeleteIngress(httpVersion11IngressName)
 	_ = s.nginx.DeleteIngress(httpVersion11IngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "proxyhttpversion")
+	for _, f := range []string{"default.yaml", "http11.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // requestDefault makes the same HTTP request against both clusters using the default ingress.
@@ -96,6 +114,10 @@ func (s *ProxyHTTPVersionSuite) TestDefaultHTTPVersionReturnsOK() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for default http version")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for default http version")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), httpVersionDefaultGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyHTTPVersionSuite) TestHTTPVersion11ReturnsOK() {
@@ -104,6 +126,10 @@ func (s *ProxyHTTPVersionSuite) TestHTTPVersion11ReturnsOK() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for explicit http/1.1")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for explicit http/1.1")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), httpVersion11GatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyHTTPVersionSuite) TestHTTPVersion11OnSubpath() {
@@ -112,6 +138,10 @@ func (s *ProxyHTTPVersionSuite) TestHTTPVersion11OnSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for subpath")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for subpath with http/1.1")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for subpath with http/1.1")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), httpVersion11GatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyHTTPVersionSuite) TestHTTPVersion11PreservesHeaders() {
@@ -136,6 +166,10 @@ func (s *ProxyHTTPVersionSuite) TestHTTPVersion11PreservesHeaders() {
 		traefikResp.RequestHeaders["X-Another-Test"],
 		"X-Another-Test header passthrough mismatch",
 	)
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), httpVersion11GatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyHTTPVersionSuite) TestHTTPVersion11MatchesDefault() {
@@ -146,6 +180,14 @@ func (s *ProxyHTTPVersionSuite) TestHTTPVersion11MatchesDefault() {
 		"traefik: default and explicit 1.1 should return the same status code")
 	assert.Equal(s.T(), nginxDefault.StatusCode, nginxExplicit.StatusCode,
 		"nginx: default and explicit 1.1 should return the same status code")
+
+	gatewayDefaultResp := s.gateway.MakeRequest(s.T(), httpVersionDefaultGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayDefaultResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikDefault.StatusCode, gatewayDefaultResp.StatusCode, "gateway migration: status code mismatch")
+
+	gatewayExplicitResp := s.gateway.MakeRequest(s.T(), httpVersion11GatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayExplicitResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikExplicit.StatusCode, gatewayExplicitResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyHTTPVersionSuite) TestHTTPVersionPOSTRequest() {
@@ -154,4 +196,8 @@ func (s *ProxyHTTPVersionSuite) TestHTTPVersionPOSTRequest() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for POST")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for POST with http/1.1")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for POST with http/1.1")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), httpVersion11GatewayHost, http.MethodPost, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }

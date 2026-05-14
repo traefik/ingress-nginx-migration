@@ -1,0 +1,22 @@
+---
+# proxy-next-upstream has no direct Gateway API equivalent.
+# Plain HTTPRoute to flaky-backend without retry middleware.
+# MIGRATION GAP: retry requires explicit Middleware.retry CRD in Gateway API.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-retry-flaky-on-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - retry-flaky-on-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: flaky-backend
+          port: 80

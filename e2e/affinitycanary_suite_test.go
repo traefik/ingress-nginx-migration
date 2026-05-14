@@ -35,11 +35,27 @@ func (s *AffinityCanarySuite) SetupSuite() {
 
 	err = waitForDeployment(s.nginx, testNamespace, "canary-backend")
 	require.NoError(s.T(), err, "canary-backend deployment not ready on nginx")
+
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "affinitycanary")
+	for _, f := range []string{"sticky.yaml", "legacy.yaml", "default.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
+	s.gateway.WaitForIngressReady(s.T(), "affinity-canary-sticky.gateway.local", 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), "affinity-canary-legacy.gateway.local", 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), "affinity-canary-default.gateway.local", 60, 1*time.Second)
 }
 
 func (s *AffinityCanarySuite) TearDownSuite() {
 	_ = s.traefik.Kubectl("delete", "-f", filepath.Join(fixturesDir, "canary-backend.yaml"), "-n", testNamespace, "--ignore-not-found")
 	_ = s.nginx.Kubectl("delete", "-f", filepath.Join(fixturesDir, "canary-backend.yaml"), "-n", testNamespace, "--ignore-not-found")
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "affinitycanary")
+	for _, f := range []string{"sticky.yaml", "legacy.yaml", "default.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // deployAffinityCanary deploys a production ingress with session affinity and a
@@ -125,6 +141,12 @@ func (s *AffinityCanarySuite) TestAffinityCanaryStickyReturnsOK() {
 
 	assert.NotEmpty(s.T(), traefikCookie, "traefik should set route cookie")
 	assert.NotEmpty(s.T(), nginxCookie, "nginx should set route cookie")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), "affinity-canary-sticky.gateway.local", http.MethodGet, "/", nil, 10, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode, "gateway should return 200")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "route")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set route cookie")
 }
 
 func (s *AffinityCanarySuite) TestAffinityCanaryStickyPreservesRouting() {
@@ -191,6 +213,10 @@ func (s *AffinityCanarySuite) TestAffinityCanaryLegacyReturnsOK() {
 	nginxResp := s.nginx.MakeRequest(s.T(), scenario+".nginx.local", http.MethodGet, "/", nil, 10, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "nginx should return 200")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), "affinity-canary-legacy.gateway.local", http.MethodGet, "/", nil, 10, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode, "gateway should return 200")
 }
 
 func (s *AffinityCanarySuite) TestAffinityCanaryDefaultReturnsOK() {
@@ -213,4 +239,10 @@ func (s *AffinityCanarySuite) TestAffinityCanaryDefaultReturnsOK() {
 
 	assert.NotEmpty(s.T(), traefikCookie, "traefik should set route cookie (default sticky behavior)")
 	assert.NotEmpty(s.T(), nginxCookie, "nginx should set route cookie (default sticky behavior)")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), "affinity-canary-default.gateway.local", http.MethodGet, "/", nil, 10, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode, "gateway should return 200")
+	gatewayCookie := findCookie(gatewayResp.ResponseHeaders, "route")
+	assert.NotEmpty(s.T(), gatewayCookie, "gateway should set route cookie (default sticky behavior)")
 }

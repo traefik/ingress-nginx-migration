@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ const (
 	basicAuthIngressName = "basic-auth-test"
 	basicAuthTraefikHost = basicAuthIngressName + ".traefik.local"
 	basicAuthNginxHost   = basicAuthIngressName + ".nginx.local"
+	basicAuthGatewayHost = basicAuthIngressName + ".gateway.local"
 
 	basicAuthUser  = "testuser"
 	basicAuthPass  = "testpass"
@@ -24,6 +26,7 @@ const (
 	authMapIngressName = "auth-map-test"
 	authMapTraefikHost = authMapIngressName + ".traefik.local"
 	authMapNginxHost   = authMapIngressName + ".nginx.local"
+	authMapGatewayHost = authMapIngressName + ".gateway.local"
 
 	authMapUser = "mapuser"
 	authMapPass = "mappass"
@@ -96,10 +99,32 @@ func (s *BasicAuthSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(authMapIngressName, authMapNginxHost, authMapAnnotations)
 	require.NoError(s.T(), err, "deploy auth-map ingress to nginx cluster")
 
+	// Create a gateway-compatible auth-map secret in htpasswd format.
+	// The CRD basicAuth middleware expects "users" key with "user:hash" entries,
+	// unlike the ingress-nginx auth-map format (key=user, value=hash).
+	gatewayAuthMapSecret := secretTemplateData{
+		Name: "gateway-auth-map-secret",
+		Data: map[string]string{
+			"users": base64.StdEncoding.EncodeToString([]byte(authMapUser + ":{SHA}" + mapHash)),
+		},
+	}
+
+	err = s.gateway.DeploySecret(gatewayAuthMapSecret)
+	require.NoError(s.T(), err, "create gateway-auth-map secret")
+
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "basicauth")
+	for _, f := range []string{"basic.yaml", "auth-map.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), basicAuthTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), basicAuthNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), authMapTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), authMapNginxHost, 20, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), basicAuthGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), authMapGatewayHost, 60, 1*time.Second)
 }
 
 func (s *BasicAuthSuite) TearDownSuite() {
@@ -111,6 +136,13 @@ func (s *BasicAuthSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(authMapIngressName)
 	_ = s.traefik.DeleteSecret("auth-map-secret")
 	_ = s.nginx.DeleteSecret("auth-map-secret")
+
+	_ = s.gateway.DeleteSecret("gateway-auth-map-secret")
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "basicauth")
+	for _, f := range []string{"basic.yaml", "auth-map.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 func basicAuthHeader(user, pass string) map[string]string {
@@ -138,27 +170,46 @@ func (s *BasicAuthSuite) TestNoCredentials() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode, "expected 401 without credentials")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), basicAuthGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BasicAuthSuite) TestCorrectCredentials() {
-	traefikResp, nginxResp := s.request(http.MethodGet, "/", basicAuthHeader(basicAuthUser, basicAuthPass))
+	headers := basicAuthHeader(basicAuthUser, basicAuthPass)
+	traefikResp, nginxResp := s.request(http.MethodGet, "/", headers)
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with correct credentials")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), basicAuthGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BasicAuthSuite) TestWrongPassword() {
-	traefikResp, nginxResp := s.request(http.MethodGet, "/", basicAuthHeader(basicAuthUser, "wrongpass"))
+	headers := basicAuthHeader(basicAuthUser, "wrongpass")
+	traefikResp, nginxResp := s.request(http.MethodGet, "/", headers)
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode, "expected 401 with wrong password")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), basicAuthGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BasicAuthSuite) TestWrongUsername() {
-	traefikResp, nginxResp := s.request(http.MethodGet, "/", basicAuthHeader("wronguser", basicAuthPass))
+	headers := basicAuthHeader("wronguser", basicAuthPass)
+	traefikResp, nginxResp := s.request(http.MethodGet, "/", headers)
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode, "expected 401 with wrong username")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), basicAuthGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BasicAuthSuite) TestAuthRealm() {
@@ -168,6 +219,14 @@ func (s *BasicAuthSuite) TestAuthRealm() {
 		nginxResp.ResponseHeaders.Get("WWW-Authenticate"),
 		traefikResp.ResponseHeaders.Get("WWW-Authenticate"),
 		"WWW-Authenticate header mismatch",
+	)
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), basicAuthGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(),
+		traefikResp.ResponseHeaders.Get("WWW-Authenticate"),
+		gatewayResp.ResponseHeaders.Get("WWW-Authenticate"),
+		"gateway migration: WWW-Authenticate header mismatch",
 	)
 }
 
@@ -196,18 +255,32 @@ func (s *BasicAuthSuite) TestAuthMapNoCredentials() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode, "expected 401 without credentials")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), authMapGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BasicAuthSuite) TestAuthMapCorrectCredentials() {
-	traefikResp, nginxResp := s.requestAuthMap(http.MethodGet, "/", basicAuthHeader(authMapUser, authMapPass))
+	headers := basicAuthHeader(authMapUser, authMapPass)
+	traefikResp, nginxResp := s.requestAuthMap(http.MethodGet, "/", headers)
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with correct credentials")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), authMapGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BasicAuthSuite) TestAuthMapWrongPassword() {
-	traefikResp, nginxResp := s.requestAuthMap(http.MethodGet, "/", basicAuthHeader(authMapUser, "wrongpass"))
+	headers := basicAuthHeader(authMapUser, "wrongpass")
+	traefikResp, nginxResp := s.requestAuthMap(http.MethodGet, "/", headers)
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode, "expected 401 with wrong password")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), authMapGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }

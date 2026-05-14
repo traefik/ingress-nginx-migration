@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,10 +16,12 @@ const (
 	customErrorsIngressName = "custom-errors-test"
 	customErrorsTraefikHost = customErrorsIngressName + ".traefik.local"
 	customErrorsNginxHost   = customErrorsIngressName + ".nginx.local"
+	customErrorsGatewayHost = "custom-errors-test.gateway.local"
 
 	customErrorsNoBackendIngressName = "custom-errors-no-backend-test"
 	customErrorsNoBackendTraefikHost = customErrorsNoBackendIngressName + ".traefik.local"
 	customErrorsNoBackendNginxHost   = customErrorsNoBackendIngressName + ".nginx.local"
+	customErrorsNoBackendGatewayHost = "custom-errors-no-backend-test.gateway.local"
 )
 
 type CustomErrorsSuite struct {
@@ -93,10 +96,22 @@ func (s *CustomErrorsSuite) SetupSuite() {
 	})
 	require.NoError(s.T(), err, "deploy custom-errors-no-backend ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	// The gateway cluster shares the same Traefik instance as s.traefik, so
+	// status-backend and error-backend are already deployed and ready.
+	err = s.gateway.DeployGatewayFixture(filepath.Join(fixturesDir, "gateway", "customerrors", "errors.yaml"))
+	require.NoError(s.T(), err, "deploy custom-errors gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(fixturesDir, "gateway", "customerrors", "no-backend.yaml"))
+	require.NoError(s.T(), err, "deploy custom-errors-no-backend gateway fixture")
+
 	s.traefik.WaitForIngressReady(s.T(), customErrorsTraefikHost, 30, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), customErrorsNginxHost, 30, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), customErrorsNoBackendTraefikHost, 30, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), customErrorsNoBackendNginxHost, 30, 1*time.Second)
+	// Gateway API routes need more time — CRD provider must publish middleware config first.
+	s.gateway.WaitForIngressReady(s.T(), customErrorsGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), customErrorsNoBackendGatewayHost, 60, 1*time.Second)
 }
 
 func (s *CustomErrorsSuite) TearDownSuite() {
@@ -104,6 +119,9 @@ func (s *CustomErrorsSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(customErrorsIngressName)
 	_ = s.traefik.DeleteIngress(customErrorsNoBackendIngressName)
 	_ = s.nginx.DeleteIngress(customErrorsNoBackendIngressName)
+
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "customerrors", "errors.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "customerrors", "no-backend.yaml"))
 
 	for _, cluster := range []*Cluster{s.traefik, s.nginx} {
 		_ = cluster.Kubectl("delete", "-f", fmt.Sprintf("%s/status-backend.yaml", fixturesDir), "-n", cluster.TestNamespace, "--ignore-not-found")
@@ -141,6 +159,11 @@ func (s *CustomErrorsSuite) TestNonErrorStatusPassesThrough() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 when upstream returns 200 (not in custom-http-errors list)")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode,
+		"gateway: expected 200 when upstream returns 200 (not in custom-http-errors list)")
 }
 
 func (s *CustomErrorsSuite) TestNonErrorBodyPassesThrough() {
@@ -150,6 +173,11 @@ func (s *CustomErrorsSuite) TestNonErrorBodyPassesThrough() {
 		"traefik should pass through upstream body on non-error status")
 	assert.Contains(s.T(), nginxResp.Body, "status backend OK",
 		"nginx should pass through upstream body on non-error status")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Contains(s.T(), gatewayResp.Body, "status backend OK",
+		"gateway should pass through upstream body on non-error status")
 }
 
 func (s *CustomErrorsSuite) Test404TriggersCustomErrorPage() {
@@ -159,6 +187,11 @@ func (s *CustomErrorsSuite) Test404TriggersCustomErrorPage() {
 		"traefik should serve custom error page on 404")
 	assert.Contains(s.T(), nginxResp.Body, "custom error page",
 		"nginx should serve custom error page on 404")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/not-found", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Contains(s.T(), gatewayResp.Body, "custom error page",
+		"gateway should serve custom error page on 404")
 }
 
 func (s *CustomErrorsSuite) Test503TriggersCustomErrorPage() {
@@ -168,6 +201,11 @@ func (s *CustomErrorsSuite) Test503TriggersCustomErrorPage() {
 		"traefik should serve custom error page on 503")
 	assert.Contains(s.T(), nginxResp.Body, "custom error page",
 		"nginx should serve custom error page on 503")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/unavailable", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Contains(s.T(), gatewayResp.Body, "custom error page",
+		"gateway should serve custom error page on 503")
 }
 
 func (s *CustomErrorsSuite) Test404StatusCodePreserved() {
@@ -175,6 +213,11 @@ func (s *CustomErrorsSuite) Test404StatusCodePreserved() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
 		"status code mismatch between traefik and nginx on 404")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/not-found", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch on 404")
 }
 
 func (s *CustomErrorsSuite) Test503StatusCodePreserved() {
@@ -182,6 +225,11 @@ func (s *CustomErrorsSuite) Test503StatusCodePreserved() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
 		"status code mismatch between traefik and nginx on 503")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/unavailable", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch on 503")
 }
 
 func (s *CustomErrorsSuite) TestUnlistedErrorCodeNotIntercepted() {
@@ -191,6 +239,11 @@ func (s *CustomErrorsSuite) TestUnlistedErrorCodeNotIntercepted() {
 		"traefik should not serve custom error page for 200 response")
 	assert.NotContains(s.T(), nginxResp.Body, "custom error page",
 		"nginx should not serve custom error page for 200 response")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.NotContains(s.T(), gatewayResp.Body, "custom error page",
+		"gateway should not serve custom error page for 200 response")
 }
 
 func (s *CustomErrorsSuite) TestNoBackend404() {
@@ -198,6 +251,12 @@ func (s *CustomErrorsSuite) TestNoBackend404() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
 		"status code mismatch between traefik and nginx on 404 without explicit default-backend")
+
+	// Gateway has no errors middleware (migration gap: no default-backend), so just compare status codes.
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsNoBackendGatewayHost, http.MethodGet, "/not-found", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+		"gateway migration: status code mismatch on 404 without errors middleware")
 }
 
 func (s *CustomErrorsSuite) TestNoBackendNonError() {
@@ -209,6 +268,13 @@ func (s *CustomErrorsSuite) TestNoBackendNonError() {
 		"traefik should pass through upstream body on non-error status")
 	assert.Contains(s.T(), nginxResp.Body, "status backend OK",
 		"nginx should pass through upstream body on non-error status")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsNoBackendGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode,
+		"gateway: expected 200 when upstream returns 200")
+	assert.Contains(s.T(), gatewayResp.Body, "status backend OK",
+		"gateway should pass through upstream body on non-error status")
 }
 
 func (s *CustomErrorsSuite) Test404WithDifferentMethods() {
@@ -226,6 +292,13 @@ func (s *CustomErrorsSuite) Test404WithDifferentMethods() {
 				"traefik should serve custom error page on 404 for method %s", method)
 			assert.Contains(t, nginxResp.Body, "custom error page",
 				"nginx should serve custom error page on 404 for method %s", method)
+
+			gatewayResp := s.gateway.MakeRequest(t, customErrorsGatewayHost, method, "/not-found", nil, 3, 1*time.Second)
+			require.NotNil(t, gatewayResp, "gateway response should not be nil")
+			assert.Equal(t, traefikResp.StatusCode, gatewayResp.StatusCode,
+				"gateway migration: status code mismatch for method %s", method)
+			assert.Contains(t, gatewayResp.Body, "custom error page",
+				"gateway should serve custom error page on 404 for method %s", method)
 		})
 	}
 }

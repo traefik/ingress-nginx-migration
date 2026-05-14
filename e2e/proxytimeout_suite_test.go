@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,6 +33,11 @@ const (
 	timeoutSendOnlyIngressName = "timeout-send-only-test"
 	timeoutSendOnlyTraefikHost = timeoutSendOnlyIngressName + ".traefik.local"
 	timeoutSendOnlyNginxHost   = timeoutSendOnlyIngressName + ".nginx.local"
+
+	timeoutAllGatewayHost          = timeoutAllIngressName + ".gateway.local"
+	timeoutShortReadGatewayHost    = timeoutShortReadIngressName + ".gateway.local"
+	timeoutConnectOnlyGatewayHost  = timeoutConnectOnlyIngressName + ".gateway.local"
+	timeoutSendOnlyGatewayHost     = timeoutSendOnlyIngressName + ".gateway.local"
 )
 
 type ProxyTimeoutSuite struct {
@@ -93,6 +99,15 @@ func (s *ProxyTimeoutSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(timeoutSendOnlyIngressName, timeoutSendOnlyNginxHost, sendOnlyAnnotations)
 	require.NoError(s.T(), err, "deploy timeout-send-only ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	// Note: proxy timeouts are a MIGRATION GAP - Traefik's Gateway API provider
+	// does not support per-route timeouts. These are plain HTTPRoutes.
+	gwDir := filepath.Join(fixturesDir, "gateway", "proxytimeout")
+	for _, f := range []string{"all.yaml", "short-read.yaml", "connect-only.yaml", "send-only.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), timeoutAllTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), timeoutAllNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), timeoutShortReadTraefikHost, 20, 1*time.Second)
@@ -101,6 +116,10 @@ func (s *ProxyTimeoutSuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), timeoutConnectOnlyNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), timeoutSendOnlyTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), timeoutSendOnlyNginxHost, 20, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), timeoutAllGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), timeoutShortReadGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), timeoutConnectOnlyGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), timeoutSendOnlyGatewayHost, 60, 1*time.Second)
 }
 
 func (s *ProxyTimeoutSuite) TearDownSuite() {
@@ -112,6 +131,11 @@ func (s *ProxyTimeoutSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(timeoutConnectOnlyIngressName)
 	_ = s.traefik.DeleteIngress(timeoutSendOnlyIngressName)
 	_ = s.nginx.DeleteIngress(timeoutSendOnlyIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "proxytimeout")
+	for _, f := range []string{"all.yaml", "short-read.yaml", "connect-only.yaml", "send-only.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // makeRequestWithClientTimeout makes an HTTP request with a custom client timeout.
@@ -196,6 +220,10 @@ func (s *ProxyTimeoutSuite) TestAllTimeoutsNormalRequest() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for normal request with all timeouts set")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for normal request with all timeouts set")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), timeoutAllGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyTimeoutSuite) TestAllTimeoutsWithSubpath() {
@@ -204,6 +232,10 @@ func (s *ProxyTimeoutSuite) TestAllTimeoutsWithSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for subpath")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for subpath request with all timeouts set")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for subpath request with all timeouts set")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), timeoutAllGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyTimeoutSuite) TestShortReadTimeoutFastRequest() {
@@ -216,9 +248,15 @@ func (s *ProxyTimeoutSuite) TestShortReadTimeoutFastRequest() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for fast request with short read timeout")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for fast request with short read timeout")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), timeoutShortReadGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyTimeoutSuite) TestShortReadTimeoutSlowBackend() {
+	// Migration gap: Gateway API HTTPRoute has no per-route timeout support in Traefik.
+	// The gateway route uses global defaults, so timeout behavior differs.
 	traefikResp := s.makeRequestWithClientTimeout(s.traefik, timeoutShortReadTraefikHost, http.MethodGet, "/?wait=5s", 15*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 
@@ -233,6 +271,8 @@ func (s *ProxyTimeoutSuite) TestShortReadTimeoutSlowBackend() {
 }
 
 func (s *ProxyTimeoutSuite) TestAllTimeoutsSlowBackendWithinLimit() {
+	// Migration gap: Gateway API HTTPRoute has no per-route timeout support in Traefik.
+	// The gateway route uses global defaults, so timeout behavior differs.
 	traefikResp := s.makeRequestWithClientTimeout(s.traefik, timeoutAllTraefikHost, http.MethodGet, "/?wait=2s", 15*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 
@@ -252,6 +292,10 @@ func (s *ProxyTimeoutSuite) TestConnectOnlyNormalRequest() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with connect-only timeout")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 with connect-only timeout")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), timeoutConnectOnlyGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyTimeoutSuite) TestSendOnlyNormalRequest() {
@@ -260,6 +304,10 @@ func (s *ProxyTimeoutSuite) TestSendOnlyNormalRequest() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with send-only timeout")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 with send-only timeout")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), timeoutSendOnlyGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyTimeoutSuite) TestAllTimeoutsPostRequest() {
@@ -268,9 +316,15 @@ func (s *ProxyTimeoutSuite) TestAllTimeoutsPostRequest() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for POST")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for POST with all timeouts set")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for POST with all timeouts set")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), timeoutAllGatewayHost, http.MethodPost, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyTimeoutSuite) TestConnectOnlySlowBackendWithinDefaultReadTimeout() {
+	// Migration gap: Gateway API HTTPRoute has no per-route timeout support in Traefik.
+	// The gateway route uses global defaults, so timeout behavior differs.
 	traefikResp := s.makeRequestWithClientTimeout(s.traefik, timeoutConnectOnlyTraefikHost, http.MethodGet, "/?wait=2s", 15*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 

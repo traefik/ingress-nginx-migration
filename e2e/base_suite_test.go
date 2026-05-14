@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -39,6 +40,7 @@ var (
 	clusterInitErr error
 	sharedTraefik  *Cluster
 	sharedNginx    *Cluster
+	sharedGateway  *Cluster
 )
 
 func init() {
@@ -115,6 +117,12 @@ func initClusters() error {
 		return fmt.Errorf("failed to init nginx cluster: %v", err)
 	}
 
+	// Gateway uses the same Traefik instance (same ports) but with .gateway.local hosts.
+	sharedGateway, err = newCluster("gateway", container, kubeconfigPath, host, "traefik", "app.kubernetes.io/name=traefik", "80/tcp", "443/tcp")
+	if err != nil {
+		return fmt.Errorf("failed to init gateway cluster: %v", err)
+	}
+
 	// If reusing an already-provisioned cluster, skip setup.
 	if reuseCluster && isClusterReady(sharedTraefik) {
 		fmt.Println("Reusing existing cluster — skipping setup.")
@@ -149,6 +157,13 @@ func initClusters() error {
 
 	// Wait for both controllers to be ready.
 	if err := waitForDeployment(sharedTraefik, "traefik", "traefik"); err != nil {
+		// Dump Helm job logs for debugging.
+		out, _ := exec.Command("kubectl", "--kubeconfig", sharedTraefik.KubeconfigPath,
+			"logs", "-n", "kube-system", "-l", "helmcharts.helm.cattle.io/chart=traefik", "--tail=30").CombinedOutput()
+		fmt.Printf("=== Helm job logs ===\n%s\n", string(out))
+		out, _ = exec.Command("kubectl", "--kubeconfig", sharedTraefik.KubeconfigPath,
+			"get", "pods", "-n", "traefik", "-o", "wide").CombinedOutput()
+		fmt.Printf("=== Traefik pods ===\n%s\n", string(out))
 		return fmt.Errorf("traefik controller not ready: %v", err)
 	}
 	if err := waitForDeployment(sharedNginx, "ingress-nginx", "ingress-nginx-controller"); err != nil {
@@ -436,6 +451,7 @@ type BaseSuite struct {
 
 	traefik *Cluster
 	nginx   *Cluster
+	gateway *Cluster
 }
 
 func (s *BaseSuite) SetupSuite() {
@@ -446,4 +462,5 @@ func (s *BaseSuite) SetupSuite() {
 
 	s.traefik = sharedTraefik
 	s.nginx = sharedNginx
+	s.gateway = sharedGateway
 }
