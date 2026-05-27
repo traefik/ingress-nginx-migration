@@ -1,0 +1,57 @@
+{
+  "generationDate": "2026-05-27T10:00:00Z",
+  "version": "v0.3.0",
+  "hash": "abc123def456",
+  "ingressCount": 4,
+  "ingressCountByClass": {
+    "nginx": 4
+  },
+  "compatibleIngressCount": 2,
+  "compatibleIngressPercentage": 50,
+  "vanillaIngressCount": 1,
+  "vanillaIngressPercentage": 25,
+  "supportedIngressCount": 1,
+  "supportedIngressPercentage": 25,
+  "unsupportedIngressCount": 2,
+  "unsupportedIngressPercentage": 50,
+  "unsupportedIngressAnnotations": {
+    "nginx.ingress.kubernetes.io/limit-connections": 2
+  },
+  "unknownIngressAnnotations": {
+    "nginx.ingress.kubernetes.io/totally-made-up": 1
+  },
+  "unsupportedIngresses": [
+    {
+      "name": "api",
+      "namespace": "prod",
+      "ingressClassName": "nginx",
+      "unsupportedAnnotations": [
+        "nginx.ingress.kubernetes.io/limit-connections"
+      ]
+    },
+    {
+      "name": "web",
+      "namespace": "prod",
+      "ingressClassName": "nginx",
+      "unsupportedAnnotations": [
+        "nginx.ingress.kubernetes.io/limit-connections"
+      ],
+      "unknownAnnotations": [
+        "nginx.ingress.kubernetes.io/totally-made-up"
+      ]
+    }
+  ],
+  "supportedIngressAnnotations": [
+    {
+      "name": "nginx.ingress.kubernetes.io/rewrite-target",
+      "version": "v3.7"
+    },
+    {
+      "name": "nginx.ingress.kubernetes.io/ssl-redirect",
+      "version": "v3.6"
+    }
+  ],
+  "compatibleV36IngressCount": 1,
+  "compatibleV37IngressCount": 1,
+  "compatibleHubIngressCount": 0
+}

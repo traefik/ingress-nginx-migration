@@ -2,7 +2,6 @@ package logger
 
 import (
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -10,11 +9,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Setup is configuring the logger.
-func Setup(level string) {
-	var w io.Writer = os.Stdout
+// Setup is configuring the logger to write to out.
+// One-shot output modes pass os.Stderr so that stdout stays reserved for the
+// machine- or human-readable report.
+func Setup(level string, out io.Writer) {
 	writer := zerolog.ConsoleWriter{
-		Out:        w,
+		Out:        out,
 		TimeFormat: time.RFC3339,
 	}
 

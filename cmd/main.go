@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/traefik/ingress-nginx-migration/pkg/client"
 	"github.com/traefik/ingress-nginx-migration/pkg/handlers"
 	"github.com/traefik/ingress-nginx-migration/pkg/logger"
+	"github.com/traefik/ingress-nginx-migration/pkg/render"
 	"github.com/urfave/cli/v3"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
@@ -31,6 +33,9 @@ const (
 	flagControllerClass    = "controller-class"
 	flagWatchWithoutClass  = "watch-ingress-without-class"
 	flagIngressClassByName = "ingress-class-by-name"
+	flagFormat             = "format"
+	flagOutputFile         = "output-file"
+	flagSummary            = "summary"
 )
 
 func main() {
@@ -81,6 +86,21 @@ func main() {
 				Usage:   "Defines if Ingress Controller should watch for Ingress Class by Name together with Controller Class.",
 				Sources: cli.EnvVars(strcase.ToSNAKE(flagIngressClassByName)),
 			},
+			&cli.StringFlag{
+				Name:    flagFormat,
+				Usage:   "Output the report once in this format ('json' or 'markdown') and exit, instead of serving the HTML report. When empty, the HTML report is served.",
+				Sources: cli.EnvVars(strcase.ToSNAKE(flagFormat)),
+			},
+			&cli.StringFlag{
+				Name:    flagOutputFile,
+				Usage:   "Write the one-shot report to this file instead of stdout. Requires --format. Overwrites an existing file.",
+				Sources: cli.EnvVars(strcase.ToSNAKE(flagOutputFile)),
+			},
+			&cli.BoolFlag{
+				Name:    flagSummary,
+				Usage:   "Omit the per-Ingress detail from the report. Only valid with --format markdown.",
+				Sources: cli.EnvVars(strcase.ToSNAKE(flagSummary)),
+			},
 		},
 		Action: run,
 	}
@@ -91,7 +111,22 @@ func main() {
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
-	logger.Setup("info")
+	format := cmd.String(flagFormat)
+	summary := cmd.Bool(flagSummary)
+	outputFile := cmd.String(flagOutputFile)
+
+	oneShot := format != ""
+
+	// In one-shot mode stdout is reserved for the report, so logs go to stderr.
+	logOut := io.Writer(os.Stdout)
+	if oneShot {
+		logOut = os.Stderr
+	}
+	logger.Setup("info", logOut)
+
+	if err := validateOutputFlags(format, summary, outputFile); err != nil {
+		return err
+	}
 
 	// Creates the Kubernetes client.
 	config, err := rest.InClusterConfig()
@@ -122,6 +157,11 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	if err = analyzr.GenerateReport(); err != nil {
 		return fmt.Errorf("generating report: %w", err)
+	}
+
+	// One-shot mode: write the report once and exit without serving.
+	if oneShot {
+		return writeReport(analyzr.Report(), format, summary, outputFile)
 	}
 
 	// Creates the platform client.
@@ -169,6 +209,49 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		_ = server.Close()
 	case err := <-errCh:
 		return fmt.Errorf("analyzer server error: %w", err)
+	}
+
+	return nil
+}
+
+// validateOutputFlags rejects flag combinations that don't make sense for the
+// one-shot output mode.
+func validateOutputFlags(format string, summary bool, outputFile string) error {
+	switch format {
+	case "", render.FormatJSON, render.FormatMarkdown:
+	default:
+		return fmt.Errorf("invalid --%s %q (must be %q or %q)", flagFormat, format, render.FormatJSON, render.FormatMarkdown)
+	}
+
+	if format == "" && outputFile != "" {
+		return fmt.Errorf("--%s requires --%s", flagOutputFile, flagFormat)
+	}
+
+	if summary && format != render.FormatMarkdown {
+		return fmt.Errorf("--%s is only valid with --%s %s", flagSummary, flagFormat, render.FormatMarkdown)
+	}
+
+	return nil
+}
+
+// writeReport renders the report to outputFile, or to stdout when outputFile is empty.
+func writeReport(report analyzer.Report, format string, summary bool, outputFile string) error {
+	if outputFile == "" {
+		return render.Render(report, format, summary, os.Stdout)
+	}
+
+	f, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("creating output file: %w", err)
+	}
+
+	if err := render.Render(report, format, summary, f); err != nil {
+		_ = f.Close()
+		return err
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("closing output file: %w", err)
 	}
 
 	return nil

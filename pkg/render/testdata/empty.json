@@ -1,0 +1,22 @@
+{
+  "generationDate": "2026-05-27T10:00:00Z",
+  "version": "v0.3.0",
+  "hash": "empty",
+  "ingressCount": 0,
+  "ingressCountByClass": {},
+  "compatibleIngressCount": 0,
+  "compatibleIngressPercentage": 0,
+  "vanillaIngressCount": 0,
+  "vanillaIngressPercentage": 0,
+  "supportedIngressCount": 0,
+  "supportedIngressPercentage": 0,
+  "unsupportedIngressCount": 0,
+  "unsupportedIngressPercentage": 0,
+  "unsupportedIngressAnnotations": {},
+  "unknownIngressAnnotations": {},
+  "unsupportedIngresses": null,
+  "supportedIngressAnnotations": null,
+  "compatibleV36IngressCount": 0,
+  "compatibleV37IngressCount": 0,
+  "compatibleHubIngressCount": 0
+}
