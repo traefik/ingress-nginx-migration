@@ -126,7 +126,7 @@ func TestRender(t *testing.T) {
 
 			goldenPath := filepath.Join("testdata", tt.golden)
 			if *update {
-				require.NoError(t, os.WriteFile(goldenPath, buf.Bytes(), 0o644))
+				require.NoError(t, os.WriteFile(goldenPath, buf.Bytes(), 0o600))
 			}
 
 			want, err := os.ReadFile(goldenPath)

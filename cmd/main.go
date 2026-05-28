@@ -111,20 +111,8 @@ func main() {
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
-	format := cmd.String(flagFormat)
-	summary := cmd.Bool(flagSummary)
-	outputFile := cmd.String(flagOutputFile)
-
-	oneShot := format != ""
-
-	// In one-shot mode stdout is reserved for the report, so logs go to stderr.
-	logOut := io.Writer(os.Stdout)
-	if oneShot {
-		logOut = os.Stderr
-	}
-	logger.Setup("info", logOut)
-
-	if err := validateOutputFlags(format, summary, outputFile); err != nil {
+	oneShot, err := planOneShot(cmd)
+	if err != nil {
 		return err
 	}
 
@@ -160,8 +148,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// One-shot mode: write the report once and exit without serving.
-	if oneShot {
-		return writeReport(analyzr.Report(), format, summary, outputFile)
+	if oneShot != nil {
+		return writeReport(analyzr.Report(), oneShot.format, oneShot.summary, oneShot.outputFile)
 	}
 
 	// Creates the platform client.
@@ -212,6 +200,40 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	return nil
+}
+
+// oneShotOutput captures the validated configuration for a one-shot report
+// invocation. A nil *oneShotOutput means the tool runs in serve mode.
+type oneShotOutput struct {
+	format     string
+	summary    bool
+	outputFile string
+}
+
+// planOneShot reads the output-related flags, validates them, configures the
+// logger (stderr in one-shot mode, stdout otherwise), and returns the one-shot
+// output config — or nil for serve mode.
+func planOneShot(cmd *cli.Command) (*oneShotOutput, error) {
+	format := cmd.String(flagFormat)
+	summary := cmd.Bool(flagSummary)
+	outputFile := cmd.String(flagOutputFile)
+
+	if err := validateOutputFlags(format, summary, outputFile); err != nil {
+		return nil, err
+	}
+
+	// In one-shot mode stdout is reserved for the report, so logs go to stderr.
+	logOut := io.Writer(os.Stdout)
+	if format != "" {
+		logOut = os.Stderr
+	}
+	logger.Setup("info", logOut)
+
+	if format == "" {
+		return nil, nil
+	}
+
+	return &oneShotOutput{format: format, summary: summary, outputFile: outputFile}, nil
 }
 
 // validateOutputFlags rejects flag combinations that don't make sense for the
