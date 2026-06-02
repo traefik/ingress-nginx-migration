@@ -8,6 +8,9 @@ on:
 env:
   golang_ci_lint_version: v2.11.2
 
+permissions:
+  contents: read
+
 jobs:
 
   ci:
