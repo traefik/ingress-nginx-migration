@@ -217,6 +217,52 @@ func (s *ForwardAuthSuite) TestAuthResponseHeadersForwarded() {
 		"traefik should forward X-Auth-Role from auth response")
 }
 
+// TestAuthResponseHeaderSpoofing verifies that a client cannot spoof headers
+// listed in auth-response-headers: the value from the auth service must
+// overwrite any client-supplied value before reaching the upstream. Headers
+// NOT listed in the annotation are passed through unchanged (and remain
+// spoofable) on both clusters.
+func (s *ForwardAuthSuite) TestAuthResponseHeaderSpoofing() {
+	// Client tries to spoof the listed auth headers, and sends an unlisted header.
+	traefikResp, nginxResp := s.requestHeaders(http.MethodGet, "/", map[string]string{
+		"X-Auth-User":      "spoofed-attacker",
+		"X-Auth-Role":      "spoofed-admin",
+		"X-Unlisted-Spoof": "passthrough",
+	})
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 when auth passes")
+
+	// Listed headers: the auth service value must win over the client-supplied one.
+	assert.Equal(s.T(),
+		nginxResp.RequestHeaders["X-Auth-User"],
+		traefikResp.RequestHeaders["X-Auth-User"],
+		"X-Auth-User spoofing behavior mismatch between nginx and traefik",
+	)
+	assert.Equal(s.T(),
+		nginxResp.RequestHeaders["X-Auth-Role"],
+		traefikResp.RequestHeaders["X-Auth-Role"],
+		"X-Auth-Role spoofing behavior mismatch between nginx and traefik",
+	)
+	assert.Equal(s.T(), "authenticated-user", traefikResp.RequestHeaders["X-Auth-User"],
+		"traefik must overwrite spoofed X-Auth-User with the auth service value")
+	assert.Equal(s.T(), "admin", traefikResp.RequestHeaders["X-Auth-Role"],
+		"traefik must overwrite spoofed X-Auth-Role with the auth service value")
+	assert.NotEqual(s.T(), "spoofed-attacker", traefikResp.RequestHeaders["X-Auth-User"],
+		"client must not be able to spoof a listed auth-response-header")
+	assert.NotEqual(s.T(), "spoofed-admin", traefikResp.RequestHeaders["X-Auth-Role"],
+		"client must not be able to spoof a listed auth-response-header")
+
+	// Unlisted header: not stripped, passed through to the backend on both clusters.
+	assert.Equal(s.T(),
+		nginxResp.RequestHeaders["X-Unlisted-Spoof"],
+		traefikResp.RequestHeaders["X-Unlisted-Spoof"],
+		"unlisted header passthrough mismatch between nginx and traefik",
+	)
+	assert.Equal(s.T(), "passthrough", traefikResp.RequestHeaders["X-Unlisted-Spoof"],
+		"unlisted header should pass through to the backend untouched")
+}
+
 func (s *ForwardAuthSuite) TestAuthAllowOnSubpath() {
 	traefikResp, nginxResp := s.requestAllow(http.MethodGet, "/some/path", nil)
 
