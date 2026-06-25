@@ -6,6 +6,7 @@ metadata:
 spec:
   repo: https://traefik.github.io/charts
   chart: traefik
+  version: "41.0.0"
   targetNamespace: traefik
   createNamespace: true
   valuesContent: |-
@@ -16,11 +17,14 @@ spec:
       tag: "{{ .Tag }}"
       pullPolicy: IfNotPresent
 {{- end }}
-    logs:
-      general:
-        level: DEBUG
+    log:
+      level: DEBUG
+    ports:
+      web:
+        forwardedHeaders:
+          insecure: true
     providers:
-      kubernetesIngressNginx:
+      kubernetesIngressNGINX:
         enabled: true
     ingressRoute:
       dashboard:

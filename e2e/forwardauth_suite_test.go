@@ -248,9 +248,9 @@ func (s *ForwardAuthSuite) TestAuthResponseHeaderSpoofing() {
 		"traefik must overwrite spoofed X-Auth-User with the auth service value")
 	assert.Equal(s.T(), "admin", traefikResp.RequestHeaders["X-Auth-Role"],
 		"traefik must overwrite spoofed X-Auth-Role with the auth service value")
-	assert.NotEqual(s.T(), "spoofed-attacker", traefikResp.RequestHeaders["X-Auth-User"],
+	assert.NotEqual(s.T(), "spoofed-attacker", traefikResp.ResponseHeaders["X-Auth-User"],
 		"client must not be able to spoof a listed auth-response-header")
-	assert.NotEqual(s.T(), "spoofed-admin", traefikResp.RequestHeaders["X-Auth-Role"],
+	assert.NotEqual(s.T(), "spoofed-admin", traefikResp.ResponseHeaders["X-Auth-Role"],
 		"client must not be able to spoof a listed auth-response-header")
 
 	// Unlisted header: not stripped, passed through to the backend on both clusters.
