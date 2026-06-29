@@ -29,9 +29,12 @@ var markdownTemplate string
 // Render writes report to w in the given format.
 //
 // summary only applies to FormatMarkdown, where it omits the per-Ingress detail
-// table. The caller is responsible for rejecting summary with other formats; see
-// cmd flag validation.
+// table. Passing summary=true with any other format is an error.
 func Render(report analyzer.Report, format string, summary bool, w io.Writer) error {
+	if summary && format != FormatMarkdown {
+		return fmt.Errorf("--summary is only valid with format %q, got %q", FormatMarkdown, format)
+	}
+
 	switch format {
 	case FormatJSON:
 		return renderJSON(report, w)

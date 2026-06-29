@@ -269,6 +269,7 @@ func writeReport(report analyzer.Report, format string, summary bool, outputFile
 
 	if err := render.Render(report, format, summary, f); err != nil {
 		_ = f.Close()
+		_ = os.Remove(outputFile)
 		return err
 	}
 

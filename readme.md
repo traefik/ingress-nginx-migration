@@ -125,7 +125,7 @@ ingress-nginx-migration --kubeconfig ~/.kube/config --format markdown
 ingress-nginx-migration --kubeconfig ~/.kube/config --format markdown --summary
 ```
 
-By default, these flags will write to stdout (default logs will be redirected to stderr). They can be combined with the `--output--file` flag in order to write to a file instead.
+By default, these flags will write to stdout (default logs will be redirected to stderr). They can be combined with the `--output-file` flag in order to write to a file instead.
 
 
 Notes:
