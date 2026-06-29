@@ -92,6 +92,9 @@ GLOBAL OPTIONS:
    --controller-class string                      Defines the Ingress Controller class to analyze. When empty, 'k8s.io/ingress-nginx' is used. [$CONTROLLER_CLASS]
    --watch-ingress-without-class                  Defines if Ingress Controller should also watch for Ingresses without an IngressClass or the annotation specified. [$WATCH_INGRESS_WITHOUT_CLASS]
    --ingress-class-by-name                        Defines if Ingress Controller should watch for Ingress Class by Name together with Controller Class. [$INGRESS_CLASS_BY_NAME]
+   --format string                                Output the report once in this format ('json' or 'markdown') and exit, instead of serving the HTML report. When empty, the HTML report is served. [$FORMAT]
+   --output-file string                           Write the one-shot report to this file instead of stdout. Requires --format. Overwrites an existing file. [$OUTPUT_FILE]
+   --summary                                      Omit the per-Ingress detail from the report. Only valid with --format markdown. [$SUMMARY]
    --help, -h                                     Show help
 ```
 
@@ -104,6 +107,43 @@ GLOBAL OPTIONS:
 > ```bash
 > KUBECONFIG=~/.kube/config ingress-nginx-migration
 > ```
+
+### Output Formats
+
+The `--format` flag allows you to output the generated report to stdout or a file, in either Markdown or JSON format. 
+
+This can be useful for use in automations and keeping track of an ongoing migration.
+
+```bash
+# Machine-readable JSON to stdout:
+ingress-nginx-migration --kubeconfig ~/.kube/config --format json
+
+# Full human-readable Markdown:
+ingress-nginx-migration --kubeconfig ~/.kube/config --format markdown
+
+# Compact Markdown status (counts only, no per-Ingress detail):
+ingress-nginx-migration --kubeconfig ~/.kube/config --format markdown --summary
+```
+
+By default, these flags will write to stdout (default logs will be redirected to stderr). They can be combined with the `--output-file` flag in order to write to a file instead.
+
+
+Notes:
+
+- `--format json` emits the **full** report, including the names/namespaces of
+  Ingresses that need manual migration. It also exposes a `hash` field as a digest
+  of the report content excluding the timestamp allowing you to detect
+  changes between runs without relying on the `generationDate`.
+- `--summary` is **Markdown-only**; combining it with `--format json` will result in an error.
+- In one-shot mode logs go to **stderr**, so stdout carries only the report.
+
+- The tool only exits non-zero only on real errors (no cluster
+  access, bad flags, write failure), never because Ingresses are incompatible.
+  You can Gate a CI job on full compatibility by inspecting the JSON, e.g. with `jq`:
+
+```bash
+ingress-nginx-migration --format json | jq -e '.unsupportedIngressCount == 0'
+```
 
 ### Required Permissions
 

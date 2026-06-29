@@ -229,8 +229,10 @@ type Report struct {
 	Version        string    `json:"version"`
 
 	// Hash is a SHA-256 hash of the report content (excluding GenerationDate).
-	// Used for localStorage persistence to detect report changes.
-	Hash string `json:"-"`
+	// Used for localStorage persistence to detect report changes, and exposed in
+	// JSON output so automation can detect meaningful changes while ignoring the
+	// noisy GenerationDate timestamp.
+	Hash string `json:"hash"`
 
 	IngressCount        int            `json:"ingressCount"`
 	IngressCountByClass map[string]int `json:"ingressCountByClass"`
@@ -345,6 +347,16 @@ func (a *Analyzer) computeReport(ingressClasses []*netv1.IngressClass, ingresses
 		report.SupportedIngressAnnotations = append(report.SupportedIngressAnnotations, AnnotationInfo{Name: ann, Version: ver})
 	}
 	slices.SortFunc(report.SupportedIngressAnnotations, func(a, b AnnotationInfo) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	// Sort unsupported ingresses by namespace then name so that the report (and
+	// its JSON/Markdown rendering) is deterministic across runs. Listers return
+	// items in indexer order, which is not stable.
+	slices.SortFunc(report.UnsupportedIngresses, func(a, b IngressReport) int {
+		if c := cmp.Compare(a.Namespace, b.Namespace); c != 0 {
+			return c
+		}
 		return cmp.Compare(a.Name, b.Name)
 	})
 

@@ -1,0 +1,44 @@
+# Traefik Migration Report
+
+Generated: {{ .GeneratedAt }} · tool {{ .Version }}
+Hash: `{{ .Hash }}`
+
+## Summary
+
+| Metric | Count | % |
+|---|---|---|
+| Total | {{ .IngressCount }} | 100% |
+| Compatible | {{ .CompatibleCount }} | {{ .CompatiblePct }} |
+| • Vanilla | {{ .VanillaCount }} | {{ .VanillaPct }} |
+| • Supported | {{ .SupportedCount }} | {{ .SupportedPct }} |
+| Unsupported | {{ .UnsupportedCount }} | {{ .UnsupportedPct }} |
+
+## Minimum Traefik version
+
+| v3.6 | v3.7 | Hub |
+|---|---|---|
+| {{ .V36 }} | {{ .V37 }} | {{ .Hub }} |
+
+## Blocking annotations
+{{ if .Blocking }}
+| Annotation | Count | Kind |
+|---|---|---|
+{{- range .Blocking }}
+| `{{ .Annotation }}` | {{ .Count }} | {{ .Kind }} |
+{{- end }}
+{{- else }}
+None 🎉
+{{- end }}
+{{- if .ShowDetail }}
+
+## Ingresses needing manual work
+{{ if .Detail }}
+| Namespace | Name | Class | Annotations to fix |
+|---|---|---|---|
+{{- range .Detail }}
+| {{ .Namespace }} | {{ .Name }} | {{ .Class }} | {{ .Fixes }} |
+{{- end }}
+{{- else }}
+None 🎉
+{{- end }}
+{{- end }}
