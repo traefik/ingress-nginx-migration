@@ -13,6 +13,7 @@ spec:
       allowSnippetAnnotations: true
       config:
         annotations-risk-level: Critical
+        use-forwarded-headers: "true"
       extraArgs:
         enable-ssl-passthrough: ""
       service:
