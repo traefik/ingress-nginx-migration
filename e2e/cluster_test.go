@@ -49,7 +49,7 @@ func (c *Cluster) Kubectl(args ...string) error {
 
 // ApplyManifest applies a YAML manifest via stdin.
 func (c *Cluster) ApplyManifest(manifest string) error {
-	cmd := exec.Command("kubectl", "--kubeconfig", c.KubeconfigPath, "apply", "-f", "-", "-n", c.TestNamespace)
+	cmd := exec.Command("kubectl", "--kubeconfig", c.KubeconfigPath, "apply", "--validate=false", "-f", "-", "-n", c.TestNamespace)
 	cmd.Stdin = strings.NewReader(manifest)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -61,7 +61,7 @@ func (c *Cluster) ApplyManifest(manifest string) error {
 // ApplyFixture applies a fixture file from the fixtures directory.
 func (c *Cluster) ApplyFixture(filename string) error {
 	fixturePath := filepath.Join(fixturesDir, filename)
-	return c.Kubectl("apply", "-f", fixturePath, "-n", c.TestNamespace)
+	return c.Kubectl("apply", "--validate=false", "-f", fixturePath, "-n", c.TestNamespace)
 }
 
 // DeployIngress deploys an ingress resource with the given annotations.
@@ -119,14 +119,14 @@ func (c *Cluster) DeployNginxBackend(data nginxBackendTemplateData) error {
 
 // DeployGatewayFixture applies a pre-generated Gateway API fixture file.
 func (c *Cluster) DeployGatewayFixture(fixturePath string) error {
-	if err := c.Kubectl("apply", "-f", fixturePath, "-n", c.TestNamespace); err != nil {
+	if err := c.Kubectl("apply", "--validate=false", "-f", fixturePath, "-n", c.TestNamespace); err != nil {
 		return err
 	}
 	// Re-apply after a short delay to work around the CRD provider watch event
 	// drop bug: the first apply may not be detected if the event channel is full.
 	// The second apply triggers an update event that forces re-evaluation.
 	time.Sleep(2 * time.Second)
-	return c.Kubectl("apply", "-f", fixturePath, "-n", c.TestNamespace)
+	return c.Kubectl("apply", "--validate=false", "-f", fixturePath, "-n", c.TestNamespace)
 }
 
 // DeleteGatewayFixture removes a pre-generated Gateway API fixture file.

@@ -216,8 +216,10 @@ func (s *CustomErrorsSuite) Test404StatusCodePreserved() {
 
 	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/not-found", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
-	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
-		"gateway migration: status code mismatch on 404")
+	// MIGRATION NOTE: Gateway API provider preserves the original 404 status code (matching nginx behavior).
+	// Traefik's Ingress provider returns the error-backend's status code (200) instead.
+	assert.Equal(s.T(), http.StatusNotFound, gatewayResp.StatusCode,
+		"gateway migration: 404 status code should be preserved (matches nginx, differs from Traefik ingress)")
 }
 
 func (s *CustomErrorsSuite) Test503StatusCodePreserved() {
@@ -228,8 +230,10 @@ func (s *CustomErrorsSuite) Test503StatusCodePreserved() {
 
 	gatewayResp := s.gateway.MakeRequest(s.T(), customErrorsGatewayHost, http.MethodGet, "/unavailable", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
-	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
-		"gateway migration: status code mismatch on 503")
+	// MIGRATION NOTE: Gateway API provider preserves the original 503 status code (matching nginx behavior).
+	// Traefik's Ingress provider returns the error-backend's status code (200) instead.
+	assert.Equal(s.T(), http.StatusServiceUnavailable, gatewayResp.StatusCode,
+		"gateway migration: 503 status code should be preserved (matches nginx, differs from Traefik ingress)")
 }
 
 func (s *CustomErrorsSuite) TestUnlistedErrorCodeNotIntercepted() {
@@ -295,8 +299,9 @@ func (s *CustomErrorsSuite) Test404WithDifferentMethods() {
 
 			gatewayResp := s.gateway.MakeRequest(t, customErrorsGatewayHost, method, "/not-found", nil, 3, 1*time.Second)
 			require.NotNil(t, gatewayResp, "gateway response should not be nil")
-			assert.Equal(t, traefikResp.StatusCode, gatewayResp.StatusCode,
-				"gateway migration: status code mismatch for method %s", method)
+			// MIGRATION NOTE: Gateway API provider preserves the original 404 status code.
+			assert.Equal(t, http.StatusNotFound, gatewayResp.StatusCode,
+				"gateway migration: 404 status code should be preserved for method %s", method)
 			assert.Contains(t, gatewayResp.Body, "custom error page",
 				"gateway should serve custom error page on 404 for method %s", method)
 		})

@@ -162,6 +162,7 @@ func (s *RateLimitSuite) SetupSuite() {
 	s.gateway.WaitForIngressReady(s.T(), rateLimitRPSGatewayHost, 60, 1*time.Second)
 	s.gateway.WaitForIngressReady(s.T(), rateLimitRPSExceedGatewayHost, 60, 1*time.Second)
 	s.gateway.WaitForIngressReady(s.T(), rateLimitRPMGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), rateLimitRPMExceedGatewayHost, 60, 1*time.Second)
 	s.gateway.WaitForIngressReady(s.T(), rateLimitSubpathGatewayHost, 60, 1*time.Second)
 	s.gateway.WaitForIngressReady(s.T(), rateLimitHeadersGatewayHost, 60, 1*time.Second)
 	s.gateway.WaitForIngressReady(s.T(), rateLimitBothGatewayHost, 60, 1*time.Second)

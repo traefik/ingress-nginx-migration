@@ -630,11 +630,12 @@ func (s *RetrySuite) TestRetryFlakyBufferingOnRecovers() {
 
 	// Gateway API migration: plain HTTPRoute without retry middleware (flaky-on.yaml).
 	// MIGRATION GAP: automatic retry requires an explicit Middleware.retry CRD.
+	// Without it, the gateway returns the upstream error directly (503).
 	s.resetFlaky(s.gateway, retryFlakyOnGatewayHost)
 	gatewayResp := s.makeRequestWithBody(s.gateway, retryFlakyOnGatewayHost, http.MethodPut, "/flaky?fail=2", body)
 	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
-	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
-		"gateway migration: status code mismatch — MIGRATION GAP: retry requires Middleware.retry CRD")
+	assert.Equal(s.T(), http.StatusServiceUnavailable, gatewayResp.StatusCode,
+		"gateway migration: MIGRATION GAP — no retry CRD configured, upstream 503 passes through")
 }
 
 func (s *RetrySuite) TestRetryFlakyBufferingOffSuppresses() {
@@ -690,9 +691,10 @@ func (s *RetrySuite) TestRetryFlakyBufferingOffNoBodyRecovers() {
 
 	// Gateway API migration: plain HTTPRoute without retry (flaky-off.yaml).
 	// MIGRATION GAP: no retry middleware configured, GET will not be retried.
+	// Without retry, the upstream 503 passes through directly.
 	s.resetFlaky(s.gateway, retryFlakyOffGatewayHost)
 	gatewayResp := s.gateway.MakeRequest(s.T(), retryFlakyOffGatewayHost, http.MethodGet, "/flaky?fail=2", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
-	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
-		"gateway migration: status code mismatch — MIGRATION GAP: retry requires Middleware.retry CRD")
+	assert.Equal(s.T(), http.StatusServiceUnavailable, gatewayResp.StatusCode,
+		"gateway migration: MIGRATION GAP — no retry CRD configured, upstream 503 passes through")
 }

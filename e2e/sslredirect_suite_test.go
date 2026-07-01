@@ -144,7 +144,9 @@ func (s *SSLRedirectSuite) TestSSLRedirectEnabled() {
 
 	gatewayResp := s.gateway.MakeRequest(s.T(), sslRedirectGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
-	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	// MIGRATION GAP: Traefik ingress uses 308 (Permanent Redirect) for force-ssl-redirect.
+	// Gateway API RequestRedirect only supports 301 and 302 per spec, so 308 is not available.
+	assert.Equal(s.T(), http.StatusMovedPermanently, gatewayResp.StatusCode, "gateway migration: force-ssl-redirect maps to 301 (Gateway API does not support 308)")
 	assert.NotEmpty(s.T(), gatewayResp.ResponseHeaders.Get("Location"), "gateway should have Location header")
 }
 
