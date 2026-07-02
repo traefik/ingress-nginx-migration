@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,16 +19,21 @@ const (
 
 	permRedirectTraefikHost    = permRedirectIngressName + ".traefik.local"
 	permRedirectNginxHost      = permRedirectIngressName + ".nginx.local"
+	permRedirectGatewayHost    = permRedirectIngressName + ".gateway.local"
 	tempRedirectTraefikHost    = tempRedirectIngressName + ".traefik.local"
 	tempRedirectNginxHost      = tempRedirectIngressName + ".nginx.local"
+	tempRedirectGatewayHost    = tempRedirectIngressName + ".gateway.local"
 	permRedirect308TraefikHost = permRedirect308IngressName + ".traefik.local"
 	permRedirect308NginxHost   = permRedirect308IngressName + ".nginx.local"
+	permRedirect308GatewayHost = permRedirect308IngressName + ".gateway.local"
 	tempRedirect307TraefikHost = tempRedirect307IngressName + ".traefik.local"
 	tempRedirect307NginxHost   = tempRedirect307IngressName + ".nginx.local"
+	tempRedirect307GatewayHost = tempRedirect307IngressName + ".gateway.local"
 
 	bothRedirectIngressName = "both-redirect-test"
 	bothRedirectTraefikHost = bothRedirectIngressName + ".traefik.local"
 	bothRedirectNginxHost   = bothRedirectIngressName + ".nginx.local"
+	bothRedirectGatewayHost = bothRedirectIngressName + ".gateway.local"
 )
 
 type RedirectSuite struct {
@@ -99,38 +105,47 @@ func (s *RedirectSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(bothRedirectIngressName, bothRedirectNginxHost, bothAnnotations)
 	require.NoError(s.T(), err, "deploy both-redirect ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "redirect")
+	for _, f := range []string{"permanent.yaml", "temporal.yaml", "permanent-308.yaml", "temporal-307.yaml", "both.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	// Wait for all ingresses to be ready.
 	s.traefik.WaitForIngressReady(s.T(), permRedirectTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), permRedirectNginxHost, 20, 1*time.Second)
-
 	s.traefik.WaitForIngressReady(s.T(), tempRedirectTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), tempRedirectNginxHost, 20, 1*time.Second)
-
 	s.traefik.WaitForIngressReady(s.T(), permRedirect308TraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), permRedirect308NginxHost, 20, 1*time.Second)
-
 	s.traefik.WaitForIngressReady(s.T(), tempRedirect307TraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), tempRedirect307NginxHost, 20, 1*time.Second)
-
 	s.traefik.WaitForIngressReady(s.T(), bothRedirectTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), bothRedirectNginxHost, 20, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), permRedirectGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), tempRedirectGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), permRedirect308GatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), tempRedirect307GatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), bothRedirectGatewayHost, 60, 1*time.Second)
 }
 
 func (s *RedirectSuite) TearDownSuite() {
 	_ = s.traefik.DeleteIngress(permRedirectIngressName)
 	_ = s.nginx.DeleteIngress(permRedirectIngressName)
-
 	_ = s.traefik.DeleteIngress(tempRedirectIngressName)
 	_ = s.nginx.DeleteIngress(tempRedirectIngressName)
-
 	_ = s.traefik.DeleteIngress(permRedirect308IngressName)
 	_ = s.nginx.DeleteIngress(permRedirect308IngressName)
-
 	_ = s.traefik.DeleteIngress(tempRedirect307IngressName)
 	_ = s.nginx.DeleteIngress(tempRedirect307IngressName)
-
 	_ = s.traefik.DeleteIngress(bothRedirectIngressName)
 	_ = s.nginx.DeleteIngress(bothRedirectIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "redirect")
+	for _, f := range []string{"permanent.yaml", "temporal.yaml", "permanent-308.yaml", "temporal-307.yaml", "both.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // requestTo makes the same HTTP request against both clusters for a given host pair and returns both responses.
@@ -146,11 +161,48 @@ func (s *RedirectSuite) requestTo(traefikHost, nginxHost, method, path string, h
 	return traefikResp, nginxResp
 }
 
+// gatewayRequestTo makes a request to the gateway cluster.
+func (s *RedirectSuite) gatewayRequestTo(gatewayHost, method, path string, headers map[string]string) *Response {
+	s.T().Helper()
+	resp := s.gateway.MakeRequest(s.T(), gatewayHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), resp, "gateway response should not be nil")
+	return resp
+}
+
+// assertGatewayRedirect compares traefik-ingress redirect with gateway redirect.
+// For status codes 307/308, Gateway API only supports 301/302, so we check the Location matches
+// but accept the status code difference (documented migration gap).
+func (s *RedirectSuite) assertGatewayRedirect(traefikResp *Response, gatewayHost, method, path string) {
+	s.T().Helper()
+	gatewayResp := s.gatewayRequestTo(gatewayHost, method, path, nil)
+
+	// Status code: for 307/308, Gateway API returns 302/301 (migration gap).
+	switch traefikResp.StatusCode {
+	case http.StatusPermanentRedirect: // 308 → 301 (redirectRegex permanent:true)
+		assert.Equal(s.T(), http.StatusMovedPermanently, gatewayResp.StatusCode,
+			"gateway migration: 308 maps to 301 (migration gap)")
+	case http.StatusTemporaryRedirect: // 307 → 302 (redirectRegex permanent:false)
+		assert.Equal(s.T(), http.StatusFound, gatewayResp.StatusCode,
+			"gateway migration: 307 maps to 302 (migration gap)")
+	default:
+		assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode,
+			"gateway migration: status code mismatch")
+	}
+
+	assert.Equal(s.T(),
+		traefikResp.ResponseHeaders.Get("Location"),
+		gatewayResp.ResponseHeaders.Get("Location"),
+		"gateway migration: Location header mismatch",
+	)
+}
+
 func (s *RedirectSuite) TestPermanentRedirectStatus() {
 	traefikResp, nginxResp := s.requestTo(permRedirectTraefikHost, permRedirectNginxHost, http.MethodGet, "/", nil)
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusMovedPermanently, traefikResp.StatusCode, "expected 301 for permanent redirect")
+
+	s.assertGatewayRedirect(traefikResp, permRedirectGatewayHost, http.MethodGet, "/")
 }
 
 func (s *RedirectSuite) TestPermanentRedirectLocation() {
@@ -164,6 +216,8 @@ func (s *RedirectSuite) TestPermanentRedirectLocation() {
 	assert.Equal(s.T(), "https://example.com/new-home", traefikResp.ResponseHeaders.Get("Location"),
 		"expected Location header to be https://example.com/new-home",
 	)
+
+	s.assertGatewayRedirect(traefikResp, permRedirectGatewayHost, http.MethodGet, "/")
 }
 
 func (s *RedirectSuite) TestTemporalRedirectStatus() {
@@ -171,6 +225,8 @@ func (s *RedirectSuite) TestTemporalRedirectStatus() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302 for temporal redirect")
+
+	s.assertGatewayRedirect(traefikResp, tempRedirectGatewayHost, http.MethodGet, "/")
 }
 
 func (s *RedirectSuite) TestTemporalRedirectLocation() {
@@ -184,6 +240,8 @@ func (s *RedirectSuite) TestTemporalRedirectLocation() {
 	assert.Equal(s.T(), "https://example.com/temp", traefikResp.ResponseHeaders.Get("Location"),
 		"expected Location header to be https://example.com/temp",
 	)
+
+	s.assertGatewayRedirect(traefikResp, tempRedirectGatewayHost, http.MethodGet, "/")
 }
 
 func (s *RedirectSuite) TestPermanentRedirectCustomCode() {
@@ -191,6 +249,8 @@ func (s *RedirectSuite) TestPermanentRedirectCustomCode() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusPermanentRedirect, traefikResp.StatusCode, "expected 308 for permanent redirect with custom code")
+
+	s.assertGatewayRedirect(traefikResp, permRedirect308GatewayHost, http.MethodGet, "/")
 }
 
 func (s *RedirectSuite) TestTemporalRedirectCustomCode() {
@@ -198,6 +258,8 @@ func (s *RedirectSuite) TestTemporalRedirectCustomCode() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusTemporaryRedirect, traefikResp.StatusCode, "expected 307 for temporal redirect with custom code")
+
+	s.assertGatewayRedirect(traefikResp, tempRedirect307GatewayHost, http.MethodGet, "/")
 }
 
 func (s *RedirectSuite) TestTemporalRedirectCustomCodeLocation() {
@@ -211,6 +273,8 @@ func (s *RedirectSuite) TestTemporalRedirectCustomCodeLocation() {
 	assert.Equal(s.T(), "https://example.com/temp-307", traefikResp.ResponseHeaders.Get("Location"),
 		"expected Location header to be https://example.com/temp-307",
 	)
+
+	s.assertGatewayRedirect(traefikResp, tempRedirect307GatewayHost, http.MethodGet, "/")
 }
 
 func (s *RedirectSuite) TestPermanentRedirectPreservesMethod() {
@@ -218,6 +282,8 @@ func (s *RedirectSuite) TestPermanentRedirectPreservesMethod() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for POST request")
 	assert.Equal(s.T(), http.StatusMovedPermanently, traefikResp.StatusCode, "expected 301 for POST to permanent redirect")
+
+	s.assertGatewayRedirect(traefikResp, permRedirectGatewayHost, http.MethodPost, "/")
 }
 
 func (s *RedirectSuite) TestTemporalPrecedenceOverPermanent() {
@@ -234,6 +300,8 @@ func (s *RedirectSuite) TestTemporalPrecedenceOverPermanent() {
 	assert.Equal(s.T(), "https://example.com/temporal", traefikResp.ResponseHeaders.Get("Location"),
 		"expected Location header to be https://example.com/temporal (temporal takes precedence)",
 	)
+
+	s.assertGatewayRedirect(traefikResp, bothRedirectGatewayHost, http.MethodGet, "/")
 }
 
 func (s *RedirectSuite) TestPermanentRedirectCustomCodeLocation() {
@@ -247,4 +315,6 @@ func (s *RedirectSuite) TestPermanentRedirectCustomCodeLocation() {
 	assert.Equal(s.T(), "https://example.com/new-home", traefikResp.ResponseHeaders.Get("Location"),
 		"expected Location header to be https://example.com/new-home",
 	)
+
+	s.assertGatewayRedirect(traefikResp, permRedirect308GatewayHost, http.MethodGet, "/")
 }

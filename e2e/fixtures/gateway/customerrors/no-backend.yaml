@@ -1,0 +1,21 @@
+---
+# Migrated from: custom-http-errors without default-backend
+# MIGRATION GAP: custom-http-errors requires default-backend to generate errors middleware
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-custom-errors-no-backend-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - custom-errors-no-backend-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: status-backend
+          port: 80

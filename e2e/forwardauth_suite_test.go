@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,21 +13,25 @@ import (
 )
 
 const (
-	forwardAuthIngressName = "forward-auth-test"
-	forwardAuthTraefikHost = forwardAuthIngressName + ".traefik.local"
-	forwardAuthNginxHost   = forwardAuthIngressName + ".nginx.local"
+	forwardAuthIngressName  = "forward-auth-test"
+	forwardAuthTraefikHost  = forwardAuthIngressName + ".traefik.local"
+	forwardAuthNginxHost    = forwardAuthIngressName + ".nginx.local"
+	forwardAuthGatewayHost  = forwardAuthIngressName + ".gateway.local"
 
 	forwardAuthDenyIngressName = "forward-auth-deny-test"
 	forwardAuthDenyTraefikHost = forwardAuthDenyIngressName + ".traefik.local"
 	forwardAuthDenyNginxHost   = forwardAuthDenyIngressName + ".nginx.local"
+	forwardAuthDenyGatewayHost = forwardAuthDenyIngressName + ".gateway.local"
 
 	forwardAuthHeadersIngressName = "forward-auth-headers-test"
 	forwardAuthHeadersTraefikHost = forwardAuthHeadersIngressName + ".traefik.local"
 	forwardAuthHeadersNginxHost   = forwardAuthHeadersIngressName + ".nginx.local"
+	forwardAuthHeadersGatewayHost = forwardAuthHeadersIngressName + ".gateway.local"
 
 	forwardAuthSigninIngressName = "forward-auth-signin-test"
 	forwardAuthSigninTraefikHost = forwardAuthSigninIngressName + ".traefik.local"
 	forwardAuthSigninNginxHost   = forwardAuthSigninIngressName + ".nginx.local"
+	forwardAuthSigninGatewayHost = forwardAuthSigninIngressName + ".gateway.local"
 
 	authServerServiceURL = "http://auth-server.default.svc.cluster.local"
 	authSigninURL        = "https://login.example.com/oauth2/start"
@@ -103,6 +108,15 @@ func (s *ForwardAuthSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(forwardAuthSigninIngressName, forwardAuthSigninNginxHost, signinAnnotations)
 	require.NoError(s.T(), err, "deploy forward-auth-signin ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	// Note: s.gateway shares the same Traefik instance as s.traefik, so the
+	// auth-server is already running in the cluster — no extra deployment needed.
+	gwDir := filepath.Join(fixturesDir, "gateway", "forwardauth")
+	for _, f := range []string{"allow.yaml", "deny.yaml", "headers.yaml", "signin.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), forwardAuthTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), forwardAuthNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), forwardAuthDenyTraefikHost, 20, 1*time.Second)
@@ -111,6 +125,11 @@ func (s *ForwardAuthSuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), forwardAuthHeadersNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), forwardAuthSigninTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), forwardAuthSigninNginxHost, 20, 1*time.Second)
+	// Gateway API routes need more time — CRD provider must publish middleware config first.
+	s.gateway.WaitForIngressReady(s.T(), forwardAuthGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), forwardAuthDenyGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), forwardAuthHeadersGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), forwardAuthSigninGatewayHost, 60, 1*time.Second)
 }
 
 func (s *ForwardAuthSuite) TearDownSuite() {
@@ -127,6 +146,12 @@ func (s *ForwardAuthSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(forwardAuthHeadersIngressName)
 	_ = s.traefik.DeleteIngress(forwardAuthSigninIngressName)
 	_ = s.nginx.DeleteIngress(forwardAuthSigninIngressName)
+
+	// Clean up Gateway API fixtures.
+	gwDir := filepath.Join(fixturesDir, "gateway", "forwardauth")
+	for _, f := range []string{"allow.yaml", "deny.yaml", "headers.yaml", "signin.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 
 	// Clean up auth server.
 	_ = s.traefik.Kubectl("delete", "-f", fmt.Sprintf("%s/auth-server.yaml", fixturesDir), "-n", s.traefik.TestNamespace, "--ignore-not-found")
@@ -180,6 +205,12 @@ func (s *ForwardAuthSuite) TestAuthAllowPassesThrough() {
 		"expected 200 when auth service returns 200")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode,
 		"expected 200 when auth service returns 200")
+
+	// Gateway API migration: same request through HTTPRoute + forwardAuth Middleware.
+	gatewayResp := s.gateway.MakeRequest(s.T(), forwardAuthGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode,
+		"gateway: expected 200 when auth service returns 200")
 }
 
 func (s *ForwardAuthSuite) TestAuthDenyReturnsUnauthorized() {
@@ -190,6 +221,12 @@ func (s *ForwardAuthSuite) TestAuthDenyReturnsUnauthorized() {
 		"expected 401 when auth service returns 401")
 	assert.Equal(s.T(), http.StatusUnauthorized, nginxResp.StatusCode,
 		"expected 401 when auth service returns 401")
+
+	// Gateway API migration: forwardAuth middleware should deny the request with 401.
+	gatewayResp := s.gateway.MakeRequest(s.T(), forwardAuthDenyGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusUnauthorized, gatewayResp.StatusCode,
+		"gateway: expected 401 when auth service returns 401")
 }
 
 func (s *ForwardAuthSuite) TestAuthResponseHeadersForwarded() {
@@ -215,6 +252,16 @@ func (s *ForwardAuthSuite) TestAuthResponseHeadersForwarded() {
 		"traefik should forward X-Auth-User from auth response")
 	assert.Equal(s.T(), "admin", traefikResp.RequestHeaders["X-Auth-Role"],
 		"traefik should forward X-Auth-Role from auth response")
+
+	// Gateway API migration: authResponseHeaders in forwardAuth middleware should
+	// forward X-Auth-User and X-Auth-Role to the upstream backend.
+	gatewayResp := s.gateway.MakeRequest(s.T(), forwardAuthHeadersGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode, "gateway: expected 200 when auth passes")
+	assert.Equal(s.T(), "authenticated-user", gatewayResp.RequestHeaders["X-Auth-User"],
+		"gateway: should forward X-Auth-User from auth response")
+	assert.Equal(s.T(), "admin", gatewayResp.RequestHeaders["X-Auth-Role"],
+		"gateway: should forward X-Auth-Role from auth response")
 }
 
 // TestAuthResponseHeaderSpoofing verifies that a client cannot spoof headers
@@ -261,6 +308,19 @@ func (s *ForwardAuthSuite) TestAuthResponseHeaderSpoofing() {
 	)
 	assert.Equal(s.T(), "passthrough", traefikResp.RequestHeaders["X-Unlisted-Spoof"],
 		"unlisted header should pass through to the backend untouched")
+
+	// Gateway API migration: forwardAuth middleware must also overwrite spoofed headers.
+	gatewayResp := s.gateway.MakeRequest(s.T(), forwardAuthHeadersGatewayHost, http.MethodGet, "/", map[string]string{
+		"X-Auth-User":      "spoofed-attacker",
+		"X-Auth-Role":      "spoofed-admin",
+		"X-Unlisted-Spoof": "passthrough",
+	}, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode, "gateway: expected 200 when auth passes")
+	assert.Equal(s.T(), "authenticated-user", gatewayResp.RequestHeaders["X-Auth-User"],
+		"gateway: must overwrite spoofed X-Auth-User with the auth service value")
+	assert.Equal(s.T(), "admin", gatewayResp.RequestHeaders["X-Auth-Role"],
+		"gateway: must overwrite spoofed X-Auth-Role with the auth service value")
 }
 
 func (s *ForwardAuthSuite) TestAuthAllowOnSubpath() {
@@ -269,6 +329,12 @@ func (s *ForwardAuthSuite) TestAuthAllowOnSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 when auth service returns 200 on subpath")
+
+	// Gateway API migration: PathPrefix / covers all subpaths.
+	gatewayResp := s.gateway.MakeRequest(s.T(), forwardAuthGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode,
+		"gateway: expected 200 when auth service returns 200 on subpath")
 }
 
 func (s *ForwardAuthSuite) TestAuthDenyOnSubpath() {
@@ -277,6 +343,12 @@ func (s *ForwardAuthSuite) TestAuthDenyOnSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode,
 		"expected 401 when auth service returns 401 on subpath")
+
+	// Gateway API migration: forwardAuth middleware applies to all subpaths via PathPrefix /.
+	gatewayResp := s.gateway.MakeRequest(s.T(), forwardAuthDenyGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusUnauthorized, gatewayResp.StatusCode,
+		"gateway: expected 401 when auth service returns 401 on subpath")
 }
 
 func (s *ForwardAuthSuite) TestAuthAllowWithCustomHeaders() {
@@ -286,6 +358,14 @@ func (s *ForwardAuthSuite) TestAuthAllowWithCustomHeaders() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with custom headers")
+
+	// Gateway API migration: custom request headers are forwarded to the auth service.
+	gatewayResp := s.gateway.MakeRequest(s.T(), forwardAuthGatewayHost, http.MethodGet, "/", map[string]string{
+		"X-Custom-Header": "custom-value",
+	}, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), http.StatusOK, gatewayResp.StatusCode,
+		"gateway: expected 200 with custom headers when auth service allows")
 }
 
 // requestSignin makes the same HTTP request against both clusters using the signin forward-auth ingress.
@@ -317,6 +397,14 @@ func (s *ForwardAuthSuite) TestAuthSigninRedirectsOnDeny() {
 		"traefik Location header should contain the auth-signin host")
 	assert.Contains(s.T(), nginxLocation, "login.example.com",
 		"nginx Location header should contain the auth-signin host")
+
+	// MIGRATION GAP: Traefik's forwardAuth middleware has no equivalent for the
+	// nginx auth-signin annotation. nginx automatically redirects the client to
+	// the signin URL when the auth service returns 4xx. With the Gateway API
+	// forwardAuth middleware, the 401 from the auth service is forwarded directly
+	// to the client — no signin redirect occurs. To achieve redirect behavior,
+	// the auth service itself must issue a 302, or an additional errors middleware
+	// must be configured. No gateway comparison assertion is made here.
 }
 
 func (s *ForwardAuthSuite) TestAuthSigninRedirectsOnSubpath() {

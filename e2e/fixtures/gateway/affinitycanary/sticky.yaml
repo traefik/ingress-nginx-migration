@@ -1,0 +1,41 @@
+---
+# Migrated from production Ingress with affinity: cookie + session-cookie-name: route,
+# combined with a canary Ingress (canary: "true", canary-weight: 50, affinity-canary-behavior: sticky).
+# Implemented with a single TraefikService weighted service and a sticky cookie.
+apiVersion: traefik.io/v1alpha1
+kind: TraefikService
+metadata:
+  name: gateway-affinity-canary-sticky-service
+  namespace: default
+spec:
+  weighted:
+    services:
+      - name: backend
+        port: 80
+        weight: 50
+      - name: canary-backend
+        port: 80
+        weight: 50
+    sticky:
+      cookie:
+        name: route
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-affinity-canary-sticky
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - affinity-canary-sticky.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: traefik.io
+          kind: TraefikService
+          name: gateway-affinity-canary-sticky-service

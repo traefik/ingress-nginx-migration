@@ -1,0 +1,39 @@
+---
+# Migrated from: auth-type: basic + auth-secret: auth-map-secret + auth-secret-type: auth-map
+# NOTE: auth-map format (key=username, value=hash) must be converted to htpasswd
+# format ("users" key with "user:hash" entries) for the CRD basicAuth middleware.
+# A new secret "gateway-auth-map-secret" in htpasswd format must be created.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-auth-map-test-auth
+  namespace: default
+spec:
+  basicAuth:
+    secret: gateway-auth-map-secret
+    realm: "Test Realm"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-auth-map-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - auth-map-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-auth-map-test-auth
+      backendRefs:
+        - name: backend
+          port: 80

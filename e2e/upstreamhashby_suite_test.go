@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,6 +19,9 @@ const (
 	noHashByIngressName  = "no-upstream-hash-by-test"
 	noHashByTraefikHost  = noHashByIngressName + ".traefik.local"
 	noHashByNginxHost    = noHashByIngressName + ".nginx.local"
+
+	hashByGatewayHost   = "upstream-hash-by-test.gateway.local"
+	noHashByGatewayHost = "no-upstream-hash-by-test.gateway.local"
 )
 
 type UpstreamHashBySuite struct {
@@ -49,10 +53,19 @@ func (s *UpstreamHashBySuite) SetupSuite() {
 	err = s.nginx.DeployIngress(noHashByIngressName, noHashByNginxHost, nil)
 	require.NoError(s.T(), err, "deploy no-upstream-hash-by ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "upstreamhashby")
+	for _, f := range []string{"hashby.yaml", "no-hashby.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), hashByTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), hashByNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), noHashByTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), noHashByNginxHost, 20, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), hashByGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), noHashByGatewayHost, 60, 1*time.Second)
 }
 
 func (s *UpstreamHashBySuite) TearDownSuite() {
@@ -60,6 +73,11 @@ func (s *UpstreamHashBySuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(hashByIngressName)
 	_ = s.traefik.DeleteIngress(noHashByIngressName)
 	_ = s.nginx.DeleteIngress(noHashByIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "upstreamhashby")
+	for _, f := range []string{"hashby.yaml", "no-hashby.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // requestHashBy makes the same HTTP request against both clusters using the upstream-hash-by ingress.
@@ -94,6 +112,10 @@ func (s *UpstreamHashBySuite) TestUpstreamHashByReturnsOK() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), hashByGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *UpstreamHashBySuite) TestUpstreamHashByConsistentRouting() {
@@ -121,6 +143,8 @@ func (s *UpstreamHashBySuite) TestUpstreamHashByConsistentRouting() {
 		assert.Equal(s.T(), nginxHostnames[0], nginxHostnames[i],
 			"nginx request %d should hit the same backend as request 0", i)
 	}
+
+	// Gateway API does not support upstream-hash-by, so consistent routing is not tested for gateway.
 }
 
 func (s *UpstreamHashBySuite) TestUpstreamHashByOnSubpath() {
@@ -129,6 +153,10 @@ func (s *UpstreamHashBySuite) TestUpstreamHashByOnSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), hashByGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *UpstreamHashBySuite) TestUpstreamHashByPreservesHeaders() {
@@ -148,6 +176,12 @@ func (s *UpstreamHashBySuite) TestUpstreamHashByPreservesHeaders() {
 		"traefik should preserve custom header value")
 	assert.Equal(s.T(), "hash-by-value", nginxResp.RequestHeaders["X-Custom-Test"],
 		"nginx should preserve custom header value")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), hashByGatewayHost, http.MethodGet, "/", map[string]string{
+		"X-Custom-Test": "hash-by-value",
+	}, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *UpstreamHashBySuite) TestNoUpstreamHashByReturnsOK() {
@@ -156,4 +190,8 @@ func (s *UpstreamHashBySuite) TestNoUpstreamHashByReturnsOK() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), noHashByGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }

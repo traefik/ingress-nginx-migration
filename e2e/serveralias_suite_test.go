@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,6 +27,12 @@ const (
 	multiAlias1NginxHost   = "alias1.nginx.local"
 	multiAlias2TraefikHost = "alias2.traefik.local"
 	multiAlias2NginxHost   = "alias2.nginx.local"
+
+	serverAliasGatewayHost    = "server-alias-test.gateway.local"
+	serverAliasAltGatewayHost = "alias-alt.gateway.local"
+	multiAliasGatewayHost     = "multi-alias-test.gateway.local"
+	multiAlias1GatewayHost    = "alias1.gateway.local"
+	multiAlias2GatewayHost    = "alias2.gateway.local"
 )
 
 type ServerAliasSuite struct {
@@ -78,6 +85,19 @@ func (s *ServerAliasSuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), multiAlias1NginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), multiAlias2TraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), multiAlias2NginxHost, 20, 1*time.Second)
+
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "serveralias")
+	for _, f := range []string{"single.yaml", "multi.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
+	s.gateway.WaitForIngressReady(s.T(), serverAliasGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), serverAliasAltGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), multiAliasGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), multiAlias1GatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), multiAlias2GatewayHost, 60, 1*time.Second)
 }
 
 func (s *ServerAliasSuite) TearDownSuite() {
@@ -85,6 +105,11 @@ func (s *ServerAliasSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(serverAliasIngressName)
 	_ = s.traefik.DeleteIngress(multiAliasIngressName)
 	_ = s.nginx.DeleteIngress(multiAliasIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "serveralias")
+	for _, f := range []string{"single.yaml", "multi.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 func (s *ServerAliasSuite) TestPrimaryHostServesNormally() {
@@ -97,6 +122,10 @@ func (s *ServerAliasSuite) TestPrimaryHostServesNormally() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for primary host")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for primary host")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), serverAliasGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ServerAliasSuite) TestAliasHostServesContent() {
@@ -109,6 +138,10 @@ func (s *ServerAliasSuite) TestAliasHostServesContent() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for alias host")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for alias host")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), serverAliasAltGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ServerAliasSuite) TestAliasHostOnSubpath() {
@@ -121,6 +154,10 @@ func (s *ServerAliasSuite) TestAliasHostOnSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for alias host on subpath")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for alias host on subpath")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), serverAliasAltGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ServerAliasSuite) TestNonAliasHostReturns404() {
@@ -148,6 +185,10 @@ func (s *ServerAliasSuite) TestMultipleAliases() {
 	assert.Equal(s.T(), http.StatusOK, traefikResp1.StatusCode, "expected 200 for first alias on traefik")
 	assert.Equal(s.T(), http.StatusOK, nginxResp1.StatusCode, "expected 200 for first alias on nginx")
 
+	gatewayResp1 := s.gateway.MakeRequest(s.T(), multiAlias1GatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp1, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp1.StatusCode, gatewayResp1.StatusCode, "gateway migration: status code mismatch for first alias")
+
 	// Second alias.
 	traefikResp2 := s.traefik.MakeRequest(s.T(), multiAlias2TraefikHost, http.MethodGet, "/", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), traefikResp2, "traefik response should not be nil")
@@ -158,4 +199,8 @@ func (s *ServerAliasSuite) TestMultipleAliases() {
 	assert.Equal(s.T(), nginxResp2.StatusCode, traefikResp2.StatusCode, "status code mismatch for second alias")
 	assert.Equal(s.T(), http.StatusOK, traefikResp2.StatusCode, "expected 200 for second alias on traefik")
 	assert.Equal(s.T(), http.StatusOK, nginxResp2.StatusCode, "expected 200 for second alias on nginx")
+
+	gatewayResp2 := s.gateway.MakeRequest(s.T(), multiAlias2GatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp2, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp2.StatusCode, gatewayResp2.StatusCode, "gateway migration: status code mismatch for second alias")
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,6 +33,12 @@ const (
 	bufferConfigIngressName = "buffer-config-test"
 	bufferConfigTraefikHost = bufferConfigIngressName + ".traefik.local"
 	bufferConfigNginxHost   = bufferConfigIngressName + ".nginx.local"
+
+	bodyLimitGatewayHost   = bodyLimitIngressName + ".gateway.local"
+	bodyNoLimitGatewayHost = bodyNoLimitIngressName + ".gateway.local"
+	bufferingOffGatewayHost = bufferingOffIngressName + ".gateway.local"
+	bodyLimitMBGatewayHost = bodyLimitMBIngressName + ".gateway.local"
+	bufferConfigGatewayHost = bufferConfigIngressName + ".gateway.local"
 )
 
 type ProxyBodySizeSuite struct {
@@ -104,6 +111,13 @@ func (s *ProxyBodySizeSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(bufferConfigIngressName, bufferConfigNginxHost, bufferConfigAnnotations)
 	require.NoError(s.T(), err, "deploy buffer-config ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "proxybodysize")
+	for _, f := range []string{"limit.yaml", "no-limit.yaml", "buffering-off.yaml", "limit-mb.yaml", "buffer-config.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), bodyLimitTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), bodyLimitNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), bodyNoLimitTraefikHost, 20, 1*time.Second)
@@ -114,6 +128,11 @@ func (s *ProxyBodySizeSuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), bodyLimitMBNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), bufferConfigTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), bufferConfigNginxHost, 20, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), bodyLimitGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), bodyNoLimitGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), bufferingOffGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), bodyLimitMBGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), bufferConfigGatewayHost, 60, 1*time.Second)
 }
 
 func (s *ProxyBodySizeSuite) TearDownSuite() {
@@ -127,6 +146,11 @@ func (s *ProxyBodySizeSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(bodyLimitMBIngressName)
 	_ = s.traefik.DeleteIngress(bufferConfigIngressName)
 	_ = s.nginx.DeleteIngress(bufferConfigIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "proxybodysize")
+	for _, f := range []string{"limit.yaml", "no-limit.yaml", "buffering-off.yaml", "limit-mb.yaml", "buffer-config.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // makeRequestWithBody makes an HTTP request with a body to the given cluster and returns the response.
@@ -169,6 +193,9 @@ func (s *ProxyBodySizeSuite) TestSmallBodyWithinLimit() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for body within limit")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for body within limit")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bodyLimitGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestLargeBodyExceedsLimit() {
@@ -180,6 +207,9 @@ func (s *ProxyBodySizeSuite) TestLargeBodyExceedsLimit() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	// nginx returns 413 for bodies exceeding the limit.
 	assert.Equal(s.T(), http.StatusRequestEntityTooLarge, nginxResp.StatusCode, "nginx should return 413 for body exceeding limit")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bodyLimitGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestLargeBodyUnlimited() {
@@ -191,6 +221,9 @@ func (s *ProxyBodySizeSuite) TestLargeBodyUnlimited() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for unlimited body size")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for unlimited body size")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bodyNoLimitGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestVeryLargeBodyUnlimited() {
@@ -202,6 +235,9 @@ func (s *ProxyBodySizeSuite) TestVeryLargeBodyUnlimited() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for unlimited body size")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for unlimited body size")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bodyNoLimitGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestBufferingOffSmallBody() {
@@ -213,6 +249,9 @@ func (s *ProxyBodySizeSuite) TestBufferingOffSmallBody() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for small body with buffering off")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for small body with buffering off")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bufferingOffGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestBufferingOffLargeBody() {
@@ -224,6 +263,9 @@ func (s *ProxyBodySizeSuite) TestBufferingOffLargeBody() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for large body with buffering off")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for large body with buffering off")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bufferingOffGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestExactBoundaryBody() {
@@ -234,6 +276,9 @@ func (s *ProxyBodySizeSuite) TestExactBoundaryBody() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
 		"exact boundary (1024 bytes against 1k limit) should be handled the same way")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bodyLimitGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestBodyLimitMBSuffix() {
@@ -247,6 +292,9 @@ func (s *ProxyBodySizeSuite) TestBodyLimitMBSuffix() {
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for 500KB body under 1m limit")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for 500KB body under 1m limit")
 
+	gatewayResp := s.makeRequestWithBody(s.gateway, bodyLimitMBGatewayHost, http.MethodPost, "/", smallBody)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+
 	// 2MB body should exceed the 1m limit.
 	largeBody := bytes.Repeat([]byte("M"), 2*1024*1024)
 
@@ -255,6 +303,9 @@ func (s *ProxyBodySizeSuite) TestBodyLimitMBSuffix() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for 2MB body")
 	assert.Equal(s.T(), http.StatusRequestEntityTooLarge, nginxResp.StatusCode, "nginx should return 413 for body exceeding 1m limit")
+
+	gatewayResp = s.makeRequestWithBody(s.gateway, bodyLimitMBGatewayHost, http.MethodPost, "/", largeBody)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestBufferConfigNormalRequest() {
@@ -267,6 +318,10 @@ func (s *ProxyBodySizeSuite) TestBufferConfigNormalRequest() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with buffer config annotations")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 with buffer config annotations")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), bufferConfigGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestBufferConfigSmallBody() {
@@ -278,6 +333,9 @@ func (s *ProxyBodySizeSuite) TestBufferConfigSmallBody() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for small body with buffer config")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for small body with buffer config")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bufferConfigGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestBufferConfigLargeBody() {
@@ -289,6 +347,9 @@ func (s *ProxyBodySizeSuite) TestBufferConfigLargeBody() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for large body with buffer config")
 	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 for large body with buffer config")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bufferConfigGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestClientBodyBufferWithinBuffer() {
@@ -301,6 +362,9 @@ func (s *ProxyBodySizeSuite) TestClientBodyBufferWithinBuffer() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 for body within client-body-buffer-size")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bufferConfigGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxyBodySizeSuite) TestClientBodyBufferExceedsBuffer() {
@@ -314,4 +378,7 @@ func (s *ProxyBodySizeSuite) TestClientBodyBufferExceedsBuffer() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 for body exceeding client-body-buffer-size but within temp file limit")
+
+	gatewayResp := s.makeRequestWithBody(s.gateway, bufferConfigGatewayHost, http.MethodPost, "/", body)
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }

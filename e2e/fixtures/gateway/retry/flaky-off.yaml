@@ -1,0 +1,23 @@
+---
+# proxy-request-buffering has no Gateway API equivalent.
+# Plain HTTPRoute to flaky-backend without retry middleware.
+# MIGRATION GAP: buffering semantics and retry suppression are not
+# expressible in Gateway API; behaviour defaults to no-retry.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-retry-flaky-off-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - retry-flaky-off-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: flaky-backend
+          port: 80

@@ -1,0 +1,30 @@
+---
+# Migrated from: rewrite-target: /rewritten + use-regex: "false"
+# URLRewrite ReplacePrefixMatch on a PathPrefix "/" leaves a trailing slash
+# in the backend path (Traefik impl: /rewritten/), which the ingress provider
+# avoids by setting the path to exactly /rewritten. Use URLRewrite
+# ReplaceFullPath instead so the backend sees /rewritten verbatim.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-no-regex-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - no-regex-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /rewritten
+      backendRefs:
+        - name: backend
+          port: 80

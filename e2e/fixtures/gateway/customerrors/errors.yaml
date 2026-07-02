@@ -1,0 +1,41 @@
+---
+# Migrated from ingress-nginx custom-http-errors: "404,503" + default-backend: error-backend
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-custom-errors-test-errors
+  namespace: default
+spec:
+  errors:
+    status:
+      - "404"
+      - "503"
+    service:
+      name: error-backend
+      port: 80
+    query: "/"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-custom-errors-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - custom-errors-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-custom-errors-test-errors
+      backendRefs:
+        - name: status-backend
+          port: 80

@@ -1,0 +1,45 @@
+---
+# Migrated from session affinity Ingress with custom cookie settings:
+#   session-cookie-name: SERVERID
+#   session-cookie-secure: "true"
+#   session-cookie-path: /app
+#   session-cookie-samesite: Strict   (lowercased to "strict" for the CRD enum)
+#   session-cookie-max-age: "3600"
+apiVersion: traefik.io/v1alpha1
+kind: TraefikService
+metadata:
+  name: gateway-affinity-custom-test-sticky
+  namespace: default
+spec:
+  weighted:
+    services:
+      - name: backend
+        port: 80
+        weight: 1
+    sticky:
+      cookie:
+        name: SERVERID
+        secure: true
+        path: /app
+        sameSite: strict
+        maxAge: 3600
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-affinity-custom-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - affinity-custom-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: traefik.io
+          kind: TraefikService
+          name: gateway-affinity-custom-test-sticky

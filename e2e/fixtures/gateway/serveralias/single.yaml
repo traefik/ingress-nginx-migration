@@ -1,0 +1,22 @@
+---
+# Migrated from: server-alias annotation with single alias
+# server-alias → multiple hostnames on HTTPRoute
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-server-alias-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - server-alias-test.gateway.local
+    - alias-alt.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: backend
+          port: 80

@@ -1,0 +1,39 @@
+---
+# Migrated from ingress-nginx limit-rpm: "1"
+# period: 1m so average expresses requests per minute.
+# burst = average * limit-burst-multiplier (default 5) = 1 * 5 = 5
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-ratelimit-rpm-exceed-test-ratelimit
+  namespace: default
+spec:
+  rateLimit:
+    average: 1
+    period: 1m
+    burst: 5
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-ratelimit-rpm-exceed-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - ratelimit-rpm-exceed-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-ratelimit-rpm-exceed-test-ratelimit
+      backendRefs:
+        - name: backend
+          port: 80

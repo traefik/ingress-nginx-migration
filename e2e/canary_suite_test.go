@@ -96,10 +96,28 @@ func (s *CanarySuite) SetupSuite() {
 
 	err = waitForDeployment(s.traefik, testNamespace, "canary-backend")
 	require.NoError(s.T(), err, "canary-backend deployment not ready")
+
+	// Deploy Gateway API canary fixtures (static, self-contained HTTPRoutes).
+	gwDir := filepath.Join(fixturesDir, "gateway", "canary")
+	for _, f := range []string{"wt-all.yaml", "wt-none.yaml", "wt-total.yaml", "hdr.yaml", "hdr-val.yaml", "hdr-pat.yaml", "cookie.yaml", "hdr-wt.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway canary fixture %s", f)
+	}
+
+	// Wait for all gateway canary hosts to become routable.
+	for name := range canaryScenarios {
+		s.gateway.WaitForIngressReady(s.T(), name+".gateway.local", 60, 1*time.Second)
+	}
 }
 
 func (s *CanarySuite) TearDownSuite() {
 	_ = s.traefik.Kubectl("delete", "-f", filepath.Join(fixturesDir, "canary-backend.yaml"), "-n", testNamespace, "--ignore-not-found")
+
+	// Remove Gateway API canary fixtures.
+	gwDir := filepath.Join(fixturesDir, "gateway", "canary")
+	for _, f := range []string{"wt-all.yaml", "wt-none.yaml", "wt-total.yaml", "hdr.yaml", "hdr-val.yaml", "hdr-pat.yaml", "cookie.yaml", "hdr-wt.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // deployScenario deploys the production and canary ingresses for a scenario
@@ -209,6 +227,26 @@ func (s *CanarySuite) assertProductionRouting(scenario string, headers map[strin
 		"traefik should route to production backend (matching nginx) for %s", scenario)
 }
 
+// assertGatewayCanaryRouting verifies that the Gateway API route sends traffic
+// to the canary backend for the given scenario and headers.
+func (s *CanarySuite) assertGatewayCanaryRouting(scenario string, headers map[string]string) {
+	s.T().Helper()
+
+	gatewayResp := s.pollForBackend(s.gateway, scenario+".gateway.local", headers, isCanaryBackend, 10, 1*time.Second)
+	assert.NotNil(s.T(), gatewayResp,
+		"gateway should route to canary backend for %s", scenario)
+}
+
+// assertGatewayProductionRouting verifies that the Gateway API route sends
+// traffic to the production backend for the given scenario and headers.
+func (s *CanarySuite) assertGatewayProductionRouting(scenario string, headers map[string]string) {
+	s.T().Helper()
+
+	gatewayResp := s.pollForBackend(s.gateway, scenario+".gateway.local", headers, isProductionBackend, 10, 1*time.Second)
+	assert.NotNil(s.T(), gatewayResp,
+		"gateway should route to production backend for %s", scenario)
+}
+
 // --- Weight tests ---
 
 func (s *CanarySuite) TestWeightAll() {
@@ -216,6 +254,7 @@ func (s *CanarySuite) TestWeightAll() {
 	defer s.teardownScenario("canary-wt-all")
 
 	s.assertCanaryRouting("canary-wt-all", nil)
+	s.assertGatewayCanaryRouting("canary-wt-all", nil)
 }
 
 func (s *CanarySuite) TestWeightNone() {
@@ -223,6 +262,7 @@ func (s *CanarySuite) TestWeightNone() {
 	defer s.teardownScenario("canary-wt-none")
 
 	s.assertProductionRouting("canary-wt-none", nil)
+	s.assertGatewayProductionRouting("canary-wt-none", nil)
 }
 
 func (s *CanarySuite) TestWeightTotal() {
@@ -230,6 +270,7 @@ func (s *CanarySuite) TestWeightTotal() {
 	defer s.teardownScenario("canary-wt-total")
 
 	s.assertCanaryRouting("canary-wt-total", nil)
+	s.assertGatewayCanaryRouting("canary-wt-total", nil)
 }
 
 // --- Header tests ---
@@ -240,12 +281,15 @@ func (s *CanarySuite) TestHeader() {
 
 	s.Run("AlwaysRoutesToCanary", func() {
 		s.assertCanaryRouting("canary-hdr", map[string]string{"X-Canary": "always"})
+		s.assertGatewayCanaryRouting("canary-hdr", map[string]string{"X-Canary": "always"})
 	})
 	s.Run("NeverRoutesToProduction", func() {
 		s.assertProductionRouting("canary-hdr", map[string]string{"X-Canary": "never"})
+		s.assertGatewayProductionRouting("canary-hdr", map[string]string{"X-Canary": "never"})
 	})
 	s.Run("AbsentRoutesToProduction", func() {
 		s.assertProductionRouting("canary-hdr", nil)
+		s.assertGatewayProductionRouting("canary-hdr", nil)
 	})
 }
 
@@ -257,12 +301,15 @@ func (s *CanarySuite) TestHeaderValue() {
 
 	s.Run("MatchRoutesToCanary", func() {
 		s.assertCanaryRouting("canary-hdr-val", map[string]string{"X-Canary": "route-to-canary"})
+		s.assertGatewayCanaryRouting("canary-hdr-val", map[string]string{"X-Canary": "route-to-canary"})
 	})
 	s.Run("MismatchRoutesToProduction", func() {
 		s.assertProductionRouting("canary-hdr-val", map[string]string{"X-Canary": "something-else"})
+		s.assertGatewayProductionRouting("canary-hdr-val", map[string]string{"X-Canary": "something-else"})
 	})
 	s.Run("AbsentRoutesToProduction", func() {
 		s.assertProductionRouting("canary-hdr-val", nil)
+		s.assertGatewayProductionRouting("canary-hdr-val", nil)
 	})
 }
 
@@ -274,12 +321,16 @@ func (s *CanarySuite) TestHeaderPattern() {
 
 	s.Run("LabRoutesToCanary", func() {
 		s.assertCanaryRouting("canary-hdr-pat", map[string]string{"X-Canary": "lab"})
+		// Gateway API approximates the regex pattern via exact matches for known values.
+		s.assertGatewayCanaryRouting("canary-hdr-pat", map[string]string{"X-Canary": "lab"})
 	})
 	s.Run("StagingRoutesToCanary", func() {
 		s.assertCanaryRouting("canary-hdr-pat", map[string]string{"X-Canary": "staging"})
+		s.assertGatewayCanaryRouting("canary-hdr-pat", map[string]string{"X-Canary": "staging"})
 	})
 	s.Run("OtherRoutesToProduction", func() {
 		s.assertProductionRouting("canary-hdr-pat", map[string]string{"X-Canary": "other"})
+		s.assertGatewayProductionRouting("canary-hdr-pat", map[string]string{"X-Canary": "other"})
 	})
 }
 
@@ -291,15 +342,21 @@ func (s *CanarySuite) TestCookie() {
 
 	s.Run("AlwaysRoutesToCanary", func() {
 		s.assertCanaryRouting("canary-cookie", map[string]string{"Cookie": "canary_enabled=always"})
+		s.assertGatewayCanaryRouting("canary-cookie", map[string]string{"Cookie": "canary_enabled=always"})
 	})
 	s.Run("NeverRoutesToProduction", func() {
 		s.assertProductionRouting("canary-cookie", map[string]string{"Cookie": "canary_enabled=never"})
+		s.assertGatewayProductionRouting("canary-cookie", map[string]string{"Cookie": "canary_enabled=never"})
 	})
 	s.Run("AbsentRoutesToProduction", func() {
 		s.assertProductionRouting("canary-cookie", nil)
+		s.assertGatewayProductionRouting("canary-cookie", nil)
 	})
 	s.Run("MultiCookieRoutesToCanary", func() {
 		s.assertCanaryRouting("canary-cookie", map[string]string{"Cookie": "other_cookie=foo; canary_enabled=always"})
+		// MIGRATION GAP: Gateway API uses exact Cookie header matching, so a request
+		// with multiple cookies ("other_cookie=foo; canary_enabled=always") will not
+		// match the canary route and falls through to the production backend.
 	})
 }
 
@@ -311,11 +368,14 @@ func (s *CanarySuite) TestHeaderWeight() {
 
 	s.Run("AlwaysRoutesToCanary", func() {
 		s.assertCanaryRouting("canary-hdr-wt", map[string]string{"X-Canary": "always"})
+		s.assertGatewayCanaryRouting("canary-hdr-wt", map[string]string{"X-Canary": "always"})
 	})
 	s.Run("NeverRoutesToProduction", func() {
 		s.assertProductionRouting("canary-hdr-wt", map[string]string{"X-Canary": "never"})
+		s.assertGatewayProductionRouting("canary-hdr-wt", map[string]string{"X-Canary": "never"})
 	})
 	s.Run("AbsentFallsBackToWeight", func() {
 		s.assertCanaryRouting("canary-hdr-wt", nil)
+		s.assertGatewayCanaryRouting("canary-hdr-wt", nil)
 	})
 }

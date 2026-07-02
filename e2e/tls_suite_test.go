@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,12 +21,27 @@ func TestTLSSuite(t *testing.T) {
 
 func (s *TLSSuite) SetupSuite() {
 	s.BaseSuite.SetupSuite()
+
+	// Deploy Gateway API equivalents for the non-TLS-specific tests.
+	gwDir := filepath.Join(fixturesDir, "gateway", "tls")
+	for _, f := range []string{"no-tls-section.yaml", "invalid-secret.yaml"} {
+		err := s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
+	s.gateway.WaitForIngressReady(s.T(), "no-spec-tls-section.gateway.local", 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), "invalid-tls-secret.gateway.local", 60, 1*time.Second)
 }
 
 func (s *TLSSuite) TearDownSuite() {
 	if s.T().Failed() {
 		s.T().Log(s.traefik.GetIngressControllerLogs(500))
 		s.T().Log(s.nginx.GetIngressControllerLogs(500))
+	}
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "tls")
+	for _, f := range []string{"no-tls-section.yaml", "invalid-secret.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
 	}
 }
 
@@ -35,11 +51,13 @@ func (s *TLSSuite) TestTLS() {
 		annotations    map[string]string
 		tlsSecret      string
 		defaultBackend *ingressDefaultBackend
+		gatewayHost    string // if set, gateway comparison is made via HTTP
 		test           func(t *testing.T, hostTraefik, hostNginx string)
 	}{
 		{
 			desc:        "no .spec.tls section",
 			annotations: map[string]string{},
+			gatewayHost: "no-spec-tls-section.gateway.local",
 			test: func(t *testing.T, hostTraefik, hostNginx string) {
 				t.Helper()
 
@@ -57,6 +75,7 @@ func (s *TLSSuite) TestTLS() {
 			desc:        "invalid tls secret",
 			annotations: map[string]string{},
 			tlsSecret:   "invalid-secret",
+			gatewayHost: "invalid-tls-secret.gateway.local",
 			test: func(t *testing.T, hostTraefik, hostNginx string) {
 				t.Helper()
 
@@ -79,6 +98,7 @@ func (s *TLSSuite) TestTLS() {
 			test: func(t *testing.T, hostTraefik, hostNginx string) {
 				t.Helper()
 
+				// TLS request should serve normally (200) even with invalid secret.
 				traefikResp := s.traefik.MakeTLSRequest(t, hostTraefik, http.MethodGet, "/resource", nil, nil, 3, 1*time.Second)
 				require.NotNil(t, traefikResp, "traefik response should not be nil")
 
@@ -88,6 +108,8 @@ func (s *TLSSuite) TestTLS() {
 				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "traefik should match nginx behavior")
 				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "expected 200 — TLS served normally even with invalid secret")
 
+				// HTTP request should redirect to HTTPS (308) because force-ssl-redirect
+				// is true — the invalid secret does not disable the redirect.
 				traefikResp = s.traefik.MakeRequest(t, hostTraefik, http.MethodGet, "/resource", nil, 3, 1*time.Second)
 				require.NotNil(t, traefikResp, "traefik response should not be nil")
 
@@ -119,7 +141,8 @@ func (s *TLSSuite) TestTLS() {
 				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "traefik should match nginx behavior")
 				assert.Equal(t, http.StatusOK, nginxResp.StatusCode, "expected 200 — default backend serves unmatched paths")
 
-				// TLS
+				// TLS — without force-ssl-redirect or ssl-redirect annotations,
+				// a TLS request should serve normally (200), not redirect.
 				traefikResp = s.traefik.MakeTLSRequest(t, hostTraefik, http.MethodGet, "/", nil, nil, 3, 1*time.Second)
 				require.NotNil(t, traefikResp, "traefik response should not be nil")
 
@@ -181,6 +204,14 @@ func (s *TLSSuite) TestTLS() {
 			s.nginx.WaitForIngressReady(t, hostNginx, 20, 1*time.Second)
 
 			test.test(t, hostTraefik, hostNginx)
+
+			// Gateway API comparison via HTTP (TLS config is at Gateway listener level, not per-route).
+			if test.gatewayHost != "" {
+				gatewayResp := s.gateway.MakeRequest(t, test.gatewayHost, http.MethodGet, "/resource", nil, 3, 1*time.Second)
+				require.NotNil(t, gatewayResp, "gateway response should not be nil")
+				assert.Equal(t, http.StatusOK, gatewayResp.StatusCode,
+					"gateway migration: expected 200 for %s", test.desc)
+			}
 		})
 	}
 }

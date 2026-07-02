@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,14 +14,16 @@ import (
 
 const (
 	// Non-www host: requests to www.wwwredir-nonwww.*.local should redirect to wwwredir-nonwww.*.local.
-	wwwRedirNonWWWIngressName = "wwwredir-nonwww-test"
-	wwwRedirNonWWWTraefikHost = wwwRedirNonWWWIngressName + ".traefik.local"
-	wwwRedirNonWWWNginxHost   = wwwRedirNonWWWIngressName + ".nginx.local"
+	wwwRedirNonWWWIngressName  = "wwwredir-nonwww-test"
+	wwwRedirNonWWWTraefikHost  = wwwRedirNonWWWIngressName + ".traefik.local"
+	wwwRedirNonWWWNginxHost    = wwwRedirNonWWWIngressName + ".nginx.local"
+	wwwRedirNonWWWGatewayHost  = "wwwredir-nonwww-test.gateway.local"
 
 	// www host: requests to wwwredir-www.*.local (without www) should redirect to www.wwwredir-www.*.local.
 	wwwRedirWWWIngressName = "wwwredir-www-test"
 	wwwRedirWWWTraefikHost = "www." + wwwRedirWWWIngressName + ".traefik.local"
 	wwwRedirWWWNginxHost   = "www." + wwwRedirWWWIngressName + ".nginx.local"
+	wwwRedirWWWGatewayHost = "www.wwwredir-www-test.gateway.local"
 )
 
 type WWWRedirectSuite struct {
@@ -52,6 +55,13 @@ func (s *WWWRedirectSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(wwwRedirWWWIngressName, wwwRedirWWWNginxHost, redirectAnnotations)
 	require.NoError(s.T(), err, "deploy www redirect ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "wwwredirect")
+	for _, f := range []string{"nonwww.yaml", "www.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), wwwRedirNonWWWTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), wwwRedirNonWWWNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), wwwRedirWWWTraefikHost, 20, 1*time.Second)
@@ -63,6 +73,11 @@ func (s *WWWRedirectSuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), "www."+wwwRedirNonWWWNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), strings.TrimPrefix(wwwRedirWWWTraefikHost, "www."), 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), strings.TrimPrefix(wwwRedirWWWNginxHost, "www."), 20, 1*time.Second)
+
+	s.gateway.WaitForIngressReady(s.T(), wwwRedirNonWWWGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), wwwRedirWWWGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), "www."+wwwRedirNonWWWGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), strings.TrimPrefix(wwwRedirWWWGatewayHost, "www."), 60, 1*time.Second)
 }
 
 func (s *WWWRedirectSuite) TearDownSuite() {
@@ -70,6 +85,11 @@ func (s *WWWRedirectSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(wwwRedirNonWWWIngressName)
 	_ = s.traefik.DeleteIngress(wwwRedirWWWIngressName)
 	_ = s.nginx.DeleteIngress(wwwRedirWWWIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "wwwredirect")
+	for _, f := range []string{"nonwww.yaml", "www.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 func (s *WWWRedirectSuite) TestNonWWWHostServesNormally() {
@@ -82,6 +102,10 @@ func (s *WWWRedirectSuite) TestNonWWWHostServesNormally() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for direct non-www host request")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), wwwRedirNonWWWGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *WWWRedirectSuite) TestWWWToNonWWWRedirect() {
@@ -114,6 +138,17 @@ func (s *WWWRedirectSuite) TestWWWToNonWWWRedirect() {
 		"traefik Location should contain non-www host, got: %s", traefikLocation)
 	assert.True(s.T(), strings.Contains(nginxLocation, wwwRedirNonWWWNginxHost),
 		"nginx Location should contain non-www host, got: %s", nginxLocation)
+
+	wwwGatewayHost := "www." + wwwRedirNonWWWGatewayHost
+	gatewayResp := s.gateway.MakeRequest(s.T(), wwwGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	// Migration gap: original uses 308, redirectRegex only supports 301
+	assert.Equal(s.T(), http.StatusMovedPermanently, gatewayResp.StatusCode,
+		"gateway migration gap: redirectRegex uses 301 instead of 308")
+	gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+	assert.NotEmpty(s.T(), gatewayLocation, "gateway should have Location header")
+	assert.True(s.T(), strings.Contains(gatewayLocation, wwwRedirNonWWWGatewayHost),
+		"gateway Location should contain non-www host, got: %s", gatewayLocation)
 }
 
 func (s *WWWRedirectSuite) TestWWWHostServesNormally() {
@@ -126,6 +161,10 @@ func (s *WWWRedirectSuite) TestWWWHostServesNormally() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 for direct www host request")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), wwwRedirWWWGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *WWWRedirectSuite) TestNonWWWToWWWRedirect() {
@@ -158,6 +197,17 @@ func (s *WWWRedirectSuite) TestNonWWWToWWWRedirect() {
 		"traefik Location should contain www host, got: %s", traefikLocation)
 	assert.True(s.T(), strings.Contains(nginxLocation, wwwRedirWWWNginxHost),
 		"nginx Location should contain www host, got: %s", nginxLocation)
+
+	nonWWWGatewayHost := strings.TrimPrefix(wwwRedirWWWGatewayHost, "www.")
+	gatewayResp := s.gateway.MakeRequest(s.T(), nonWWWGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	// Migration gap: original uses 308, redirectRegex only supports 301
+	assert.Equal(s.T(), http.StatusMovedPermanently, gatewayResp.StatusCode,
+		"gateway migration gap: redirectRegex uses 301 instead of 308")
+	gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+	assert.NotEmpty(s.T(), gatewayLocation, "gateway should have Location header")
+	assert.True(s.T(), strings.Contains(gatewayLocation, wwwRedirWWWGatewayHost),
+		"gateway Location should contain www host, got: %s", gatewayLocation)
 }
 
 func (s *WWWRedirectSuite) TestWWWRedirectPreservesPath() {
@@ -178,4 +228,11 @@ func (s *WWWRedirectSuite) TestWWWRedirectPreservesPath() {
 		"traefik Location should preserve path, got: %s", traefikLocation)
 	assert.True(s.T(), strings.HasSuffix(nginxLocation, "/some/path"),
 		"nginx Location should preserve path, got: %s", nginxLocation)
+
+	wwwGatewayHost := "www." + wwwRedirNonWWWGatewayHost
+	gatewayResp := s.gateway.MakeRequest(s.T(), wwwGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+	assert.True(s.T(), strings.HasSuffix(gatewayLocation, "/some/path"),
+		"gateway Location should preserve path, got: %s", gatewayLocation)
 }

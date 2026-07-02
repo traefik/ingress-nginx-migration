@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ const (
 	appRootIngressName = "app-root-test"
 	appRootTraefikHost = appRootIngressName + ".traefik.local"
 	appRootNginxHost   = appRootIngressName + ".nginx.local"
+	appRootGatewayHost = appRootIngressName + ".gateway.local"
 )
 
 type AppRootSuite struct {
@@ -39,13 +41,20 @@ func (s *AppRootSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(appRootIngressName, appRootNginxHost, appRootAnnotations)
 	require.NoError(s.T(), err, "deploy app-root ingress to nginx cluster")
 
+	// Deploy Gateway API equivalent (app-root /dashboard → RequestRedirect filter on / path).
+	err = s.gateway.DeployGatewayFixture(filepath.Join(fixturesDir, "gateway", "approot", "dashboard.yaml"))
+	require.NoError(s.T(), err, "deploy app-root gateway fixture")
+
 	s.traefik.WaitForIngressReady(s.T(), appRootTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), appRootNginxHost, 20, 1*time.Second)
+	// Gateway API routes need more time, the CRD provider must publish middleware config first.
+	s.gateway.WaitForIngressReady(s.T(), appRootGatewayHost, 60, 1*time.Second)
 }
 
 func (s *AppRootSuite) TearDownSuite() {
 	_ = s.traefik.DeleteIngress(appRootIngressName)
 	_ = s.nginx.DeleteIngress(appRootIngressName)
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "approot", "dashboard.yaml"))
 }
 
 func (s *AppRootSuite) requestWithHost(method, path string, headers map[string]string, host string) (traefikResp, nginxResp *Response) {
@@ -60,7 +69,7 @@ func (s *AppRootSuite) requestWithHost(method, path string, headers map[string]s
 	return traefikResp, nginxResp
 }
 
-func (s *AppRootSuite) request(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
+func (s *AppRootSuite) request(method, path string, headers map[string]string) (traefikResp, nginxResp, gatewayResp *Response) {
 	s.T().Helper()
 
 	traefikResp = s.traefik.MakeRequest(s.T(), appRootTraefikHost, method, path, headers, 3, 1*time.Second)
@@ -69,7 +78,10 @@ func (s *AppRootSuite) request(method, path string, headers map[string]string) (
 	nginxResp = s.nginx.MakeRequest(s.T(), appRootNginxHost, method, path, headers, 3, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
 
-	return traefikResp, nginxResp
+	gatewayResp = s.gateway.MakeRequest(s.T(), appRootGatewayHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+
+	return traefikResp, nginxResp, gatewayResp
 }
 
 func (s *AppRootSuite) TestAppRoot() {
@@ -79,6 +91,7 @@ func (s *AppRootSuite) TestAppRoot() {
 		path    string
 		headers map[string]string
 		check   func(t *testing.T, traefikResp, nginxResp *Response)
+		checkGW func(t *testing.T, traefikResp, gatewayResp *Response)
 	}{
 		{
 			desc:   "root redirects to app-root",
@@ -97,6 +110,13 @@ func (s *AppRootSuite) TestAppRoot() {
 				assert.Equal(t, "http://"+appRootNginxHost+"/dashboard", nginxLocation,
 					"nginx Location header should end with /dashboard, got: %s", nginxLocation)
 			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				t.Helper()
+				assert.Equal(t, traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+				gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+				assert.True(t, strings.HasSuffix(gatewayLocation, "/dashboard"),
+					"gateway Location header should end with /dashboard, got: %s", gatewayLocation)
+			},
 		},
 		{
 			desc:   "non-root path passthrough",
@@ -110,6 +130,11 @@ func (s *AppRootSuite) TestAppRoot() {
 				traefikLocation := traefikResp.ResponseHeaders.Get("Location")
 				assert.Equal(t, "", traefikLocation, "no redirect for non-root path")
 			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				t.Helper()
+				assert.Equal(t, traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+				assert.Equal(t, "", gatewayResp.ResponseHeaders.Get("Location"), "gateway: no redirect for non-root path")
+			},
 		},
 		{
 			desc:   "non-root path with trailing slash",
@@ -119,6 +144,10 @@ func (s *AppRootSuite) TestAppRoot() {
 				t.Helper()
 				assert.Equal(t, nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 				assert.Equal(t, http.StatusOK, traefikResp.StatusCode, "expected 200 for /some/path/")
+			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				t.Helper()
+				assert.Equal(t, traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 			},
 		},
 		{
@@ -138,6 +167,13 @@ func (s *AppRootSuite) TestAppRoot() {
 				assert.Equal(t, "http://"+appRootNginxHost+"/dashboard", nginxLocation,
 					"nginx Location header should end with /dashboard, got: %s", nginxLocation)
 			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				t.Helper()
+				assert.Equal(t, traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+				gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+				assert.True(t, strings.Contains(gatewayLocation, "/dashboard"),
+					"gateway Location should contain /dashboard, got: %s", gatewayLocation)
+			},
 		},
 		{
 			desc:   "root with multiple query parameters",
@@ -156,13 +192,23 @@ func (s *AppRootSuite) TestAppRoot() {
 				assert.Equal(t, "http://"+appRootNginxHost+"/dashboard", nginxLocation,
 					"nginx Location header should end with /dashboard, got: %s", nginxLocation)
 			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				t.Helper()
+				assert.Equal(t, traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+				gatewayLocation := gatewayResp.ResponseHeaders.Get("Location")
+				assert.True(t, strings.Contains(gatewayLocation, "/dashboard"),
+					"gateway Location should contain /dashboard, got: %s", gatewayLocation)
+			},
 		},
 	}
 
 	for _, tc := range testCases {
 		s.T().Run(tc.desc, func(t *testing.T) {
-			traefikResp, nginxResp := s.request(tc.method, tc.path, tc.headers)
+			traefikResp, nginxResp, gatewayResp := s.request(tc.method, tc.path, tc.headers)
 			tc.check(t, traefikResp, nginxResp)
+			if tc.checkGW != nil {
+				tc.checkGW(t, traefikResp, gatewayResp)
+			}
 		})
 	}
 }

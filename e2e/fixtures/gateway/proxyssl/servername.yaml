@@ -1,0 +1,21 @@
+---
+# Migrated from: backend-protocol: HTTPS + proxy-ssl-server-name: on
+# HTTPRoute only: BackendTLSPolicy is in backend-tls-policy.yaml (shared per service).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-proxy-ssl-svrname-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - proxy-ssl-svrname-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: https-backend
+          port: 443

@@ -1,0 +1,39 @@
+---
+# Migrated: permanent-redirect + permanent-redirect-code: "308"
+# Gateway API only supports 301/302. Using Traefik redirectRegex middleware for 308.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-perm-redirect-308-test-redirect
+  namespace: default
+spec:
+  redirectRegex:
+    regex: "^https?://[^/]+(.*)"
+    replacement: "https://example.com/new-home"
+    permanent: true
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-perm-redirect-308-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - perm-redirect-308-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-perm-redirect-308-test-redirect
+      backendRefs:
+        - name: backend
+          port: 80

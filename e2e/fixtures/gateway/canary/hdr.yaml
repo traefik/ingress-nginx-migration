@@ -1,0 +1,47 @@
+---
+# Migrated from: canary: "true" + canary-by-header: X-Canary
+# Ingress-nginx semantics:
+#   X-Canary: always : route to canary
+#   X-Canary: never  : route to production
+#   absent or other  : route to production
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-canary-hdr
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - canary-hdr.gateway.local
+  rules:
+    # X-Canary: always -> canary
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - name: X-Canary
+              value: always
+      backendRefs:
+        - name: canary-backend
+          port: 80
+    # X-Canary: never -> production
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - name: X-Canary
+              value: never
+      backendRefs:
+        - name: backend
+          port: 80
+    # Default (absent or other) -> production
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: backend
+          port: 80

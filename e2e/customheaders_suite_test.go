@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ const (
 	customHeadersIngressName   = "custom-headers-test"
 	customHeadersTraefikHost   = customHeadersIngressName + ".traefik.local"
 	customHeadersNginxHost     = customHeadersIngressName + ".nginx.local"
+	customHeadersGatewayHost   = customHeadersIngressName + ".gateway.local"
 	customHeadersConfigMapName = "custom-headers"
 )
 
@@ -65,8 +67,14 @@ func (s *CustomHeadersSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(customHeadersIngressName, customHeadersNginxHost, nil)
 	require.NoError(s.T(), err, "deploy custom-headers ingress to nginx cluster")
 
+	// Deploy Gateway API equivalent (custom-headers annotation → ResponseHeaderModifier filter).
+	err = s.gateway.DeployGatewayFixture(filepath.Join(fixturesDir, "gateway", "customheaders", "headers.yaml"))
+	require.NoError(s.T(), err, "deploy custom-headers gateway fixture")
+
 	s.traefik.WaitForIngressReady(s.T(), customHeadersTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), customHeadersNginxHost, 20, 1*time.Second)
+	// Gateway API routes need more time — CRD provider must publish middleware config first.
+	s.gateway.WaitForIngressReady(s.T(), customHeadersGatewayHost, 60, 1*time.Second)
 }
 
 func (s *CustomHeadersSuite) TearDownSuite() {
@@ -74,6 +82,7 @@ func (s *CustomHeadersSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(customHeadersIngressName)
 	_ = s.traefik.DeleteConfigMap(customHeadersConfigMapName)
 	_ = s.nginx.DeleteConfigMap(customHeadersConfigMapName)
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "customheaders", "headers.yaml"))
 
 	// Remove the add-headers key from the nginx controller ConfigMap.
 	_ = s.nginx.Kubectl("patch", "configmap", "ingress-nginx-controller",
@@ -83,7 +92,7 @@ func (s *CustomHeadersSuite) TearDownSuite() {
 	)
 }
 
-func (s *CustomHeadersSuite) request(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
+func (s *CustomHeadersSuite) request(method, path string, headers map[string]string) (traefikResp, nginxResp, gatewayResp *Response) {
 	s.T().Helper()
 
 	traefikResp = s.traefik.MakeRequest(s.T(), customHeadersTraefikHost, method, path, headers, 3, 1*time.Second)
@@ -92,16 +101,20 @@ func (s *CustomHeadersSuite) request(method, path string, headers map[string]str
 	nginxResp = s.nginx.MakeRequest(s.T(), customHeadersNginxHost, method, path, headers, 3, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
 
-	return traefikResp, nginxResp
+	gatewayResp = s.gateway.MakeRequest(s.T(), customHeadersGatewayHost, method, path, headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+
+	return traefikResp, nginxResp, gatewayResp
 }
 
 func (s *CustomHeadersSuite) TestCustomHeaders() {
 	testCases := []struct {
-		desc    string
-		method  string
-		path    string
-		headers map[string]string
-		check   func(t *testing.T, traefikResp, nginxResp *Response)
+		desc        string
+		method      string
+		path        string
+		headers     map[string]string
+		check       func(t *testing.T, traefikResp, nginxResp *Response)
+		checkGW     func(t *testing.T, traefikResp, gatewayResp *Response)
 	}{
 		{
 			desc:   "X-Custom-Resp header",
@@ -115,6 +128,10 @@ func (s *CustomHeadersSuite) TestCustomHeaders() {
 					"X-Custom-Resp mismatch",
 				)
 			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				assert.Equal(t, "custom-response-value", gatewayResp.ResponseHeaders.Get("X-Custom-Resp"),
+					"gateway should set X-Custom-Resp response header")
+			},
 		},
 		{
 			desc:   "X-Frame-Options header",
@@ -127,6 +144,10 @@ func (s *CustomHeadersSuite) TestCustomHeaders() {
 					"X-Frame-Options mismatch",
 				)
 			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				assert.Equal(t, "DENY", gatewayResp.ResponseHeaders.Get("X-Frame-Options"),
+					"gateway should set X-Frame-Options response header")
+			},
 		},
 		{
 			desc:   "X-More-Resp header",
@@ -138,6 +159,10 @@ func (s *CustomHeadersSuite) TestCustomHeaders() {
 					traefikResp.ResponseHeaders.Get("X-More-Resp"),
 					"X-More-Resp mismatch",
 				)
+			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				assert.Equal(t, "more-response-value", gatewayResp.ResponseHeaders.Get("X-More-Resp"),
+					"gateway should set X-More-Resp response header")
 			},
 		},
 		{
@@ -153,14 +178,20 @@ func (s *CustomHeadersSuite) TestCustomHeaders() {
 					"client header passthrough mismatch",
 				)
 			},
+			checkGW: func(t *testing.T, traefikResp, gatewayResp *Response) {
+				assert.Equal(t, traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+			},
 		},
 	}
 
 	for _, tc := range testCases {
 		s.T().Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
-			traefikResp, nginxResp := s.request(tc.method, tc.path, tc.headers)
+			traefikResp, nginxResp, gatewayResp := s.request(tc.method, tc.path, tc.headers)
 			tc.check(t, traefikResp, nginxResp)
+			if tc.checkGW != nil {
+				tc.checkGW(t, traefikResp, gatewayResp)
+			}
 		})
 	}
 }

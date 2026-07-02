@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,24 +16,30 @@ const (
 	rewriteCaptureIngressName = "rewrite-capture-test"
 	rewriteTraefikHost        = rewriteIngressName + ".traefik.local"
 	rewriteNginxHost          = rewriteIngressName + ".nginx.local"
+	rewriteGatewayHost        = rewriteIngressName + ".gateway.local"
 	rewriteCaptureTraefikHost = rewriteCaptureIngressName + ".traefik.local"
 	rewriteCaptureNginxHost   = rewriteCaptureIngressName + ".nginx.local"
+	rewriteCaptureGatewayHost = rewriteCaptureIngressName + ".gateway.local"
 
 	noRegexIngressName = "no-regex-test"
 	noRegexTraefikHost = noRegexIngressName + ".traefik.local"
 	noRegexNginxHost   = noRegexIngressName + ".nginx.local"
+	noRegexGatewayHost = noRegexIngressName + ".gateway.local"
 
 	exactPathIngressName = "exact-path-test"
 	exactPathTraefikHost = exactPathIngressName + ".traefik.local"
 	exactPathNginxHost   = exactPathIngressName + ".nginx.local"
+	exactPathGatewayHost = exactPathIngressName + ".gateway.local"
 
 	fullPathNoRegexIngressName = "full-path-test"
 	fullPathNoRegexTraefikHost = fullPathNoRegexIngressName + ".traefik.local"
 	fullPathNoRegexNginxHost   = fullPathNoRegexIngressName + ".nginx.local"
+	fullPathNoRegexGatewayHost = fullPathNoRegexIngressName + ".gateway.local"
 
 	fullPathWithPathRegexIngressName = "full-path-regex-test"
 	fullPathWithPathRegexTraefikHost = fullPathWithPathRegexIngressName + ".traefik.local"
 	fullPathWithPathRegexNginxHost   = fullPathWithPathRegexIngressName + ".nginx.local"
+	fullPathWithPathRegexGatewayHost = fullPathWithPathRegexIngressName + ".gateway.local"
 )
 
 type RewriteTargetSuite struct {
@@ -172,6 +179,27 @@ func (s *RewriteTargetSuite) SetupSuite() {
 	})
 	require.NoError(s.T(), err, "deploy exact-path rewrite ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	gatewayFixturesDir := filepath.Join(fixturesDir, "gateway", "rewritetarget")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gatewayFixturesDir, "simple.yaml"))
+	require.NoError(s.T(), err, "deploy simple rewrite gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gatewayFixturesDir, "capture.yaml"))
+	require.NoError(s.T(), err, "deploy capture rewrite gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gatewayFixturesDir, "no-regex.yaml"))
+	require.NoError(s.T(), err, "deploy no-regex gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gatewayFixturesDir, "exact-path.yaml"))
+	require.NoError(s.T(), err, "deploy exact-path gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gatewayFixturesDir, "full-path-no-regex.yaml"))
+	require.NoError(s.T(), err, "deploy full-path-no-regex gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gatewayFixturesDir, "full-path-regex.yaml"))
+	require.NoError(s.T(), err, "deploy full-path-regex gateway fixture")
+
 	// Wait for ingresses to be ready by polling the actual paths.
 	s.waitForRewriteIngressReady(s.traefik, rewriteTraefikHost, "/app")
 	s.waitForRewriteIngressReady(s.nginx, rewriteNginxHost, "/app")
@@ -185,6 +213,13 @@ func (s *RewriteTargetSuite) SetupSuite() {
 	s.waitForRewriteIngressReady(s.nginx, fullPathNoRegexNginxHost, "/original")
 	s.waitForRewriteIngressReady(s.traefik, fullPathWithPathRegexTraefikHost, "/original/health")
 	s.waitForRewriteIngressReady(s.nginx, fullPathWithPathRegexNginxHost, "/original/health")
+	// Gateway API routes need more time — CRD provider must publish middleware config first.
+	s.waitForRewriteIngressReady(s.gateway, rewriteGatewayHost, "/app")
+	s.waitForRewriteIngressReady(s.gateway, rewriteCaptureGatewayHost, "/api/healthz")
+	s.waitForRewriteIngressReady(s.gateway, noRegexGatewayHost, "/")
+	s.waitForRewriteIngressReady(s.gateway, exactPathGatewayHost, "/original")
+	s.waitForRewriteIngressReady(s.gateway, fullPathNoRegexGatewayHost, "/original")
+	s.waitForRewriteIngressReady(s.gateway, fullPathWithPathRegexGatewayHost, "/original/health")
 }
 
 // waitForRewriteIngressReady polls the given path until the ingress starts routing requests.
@@ -214,6 +249,14 @@ func (s *RewriteTargetSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(fullPathNoRegexIngressName)
 	_ = s.traefik.DeleteIngress(fullPathWithPathRegexIngressName)
 	_ = s.nginx.DeleteIngress(fullPathWithPathRegexIngressName)
+
+	gatewayFixturesDir := filepath.Join(fixturesDir, "gateway", "rewritetarget")
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gatewayFixturesDir, "simple.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gatewayFixturesDir, "capture.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gatewayFixturesDir, "no-regex.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gatewayFixturesDir, "exact-path.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gatewayFixturesDir, "full-path-no-regex.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gatewayFixturesDir, "full-path-regex.yaml"))
 }
 
 // requestSimple makes the same HTTP request against both clusters using the simple rewrite hosts.
@@ -250,6 +293,11 @@ func (s *RewriteTargetSuite) TestSimpleRewrite() {
 
 	assert.Contains(s.T(), nginxResp.Body, "GET / HTTP/1.1", "nginx backend should see URI /")
 	assert.Contains(s.T(), traefikResp.Body, "GET / HTTP/1.1", "traefik backend should see URI /")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), rewriteGatewayHost, http.MethodGet, "/app", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Contains(s.T(), gatewayResp.Body, "GET / HTTP/1.1", "gateway backend should see rewritten URI /")
 }
 
 func (s *RewriteTargetSuite) TestSimpleRewriteSubpath() {
@@ -260,6 +308,11 @@ func (s *RewriteTargetSuite) TestSimpleRewriteSubpath() {
 
 	assert.Contains(s.T(), nginxResp.Body, "GET /hello HTTP/1.1", "nginx backend should see URI /hello")
 	assert.Contains(s.T(), traefikResp.Body, "GET /hello HTTP/1.1", "traefik backend should see URI /hello")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), rewriteGatewayHost, http.MethodGet, "/app/hello", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Contains(s.T(), gatewayResp.Body, "GET /hello HTTP/1.1", "gateway backend should see rewritten URI /hello")
 }
 
 func (s *RewriteTargetSuite) TestCaptureGroupRewrite() {
@@ -270,6 +323,11 @@ func (s *RewriteTargetSuite) TestCaptureGroupRewrite() {
 
 	assert.Contains(s.T(), nginxResp.Body, "GET /users HTTP/1.1", "nginx backend should see URI /users")
 	assert.Contains(s.T(), traefikResp.Body, "GET /users HTTP/1.1", "traefik backend should see URI /users")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), rewriteCaptureGatewayHost, http.MethodGet, "/api/users", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Contains(s.T(), gatewayResp.Body, "GET /users HTTP/1.1", "gateway backend should see rewritten URI /users")
 }
 
 func (s *RewriteTargetSuite) TestCaptureGroupRewriteRoot() {
@@ -280,6 +338,11 @@ func (s *RewriteTargetSuite) TestCaptureGroupRewriteRoot() {
 
 	assert.Contains(s.T(), nginxResp.Body, "GET / HTTP/1.1", "nginx backend should see URI /")
 	assert.Contains(s.T(), traefikResp.Body, "GET / HTTP/1.1", "traefik backend should see URI /")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), rewriteCaptureGatewayHost, http.MethodGet, "/api/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Contains(s.T(), gatewayResp.Body, "GET / HTTP/1.1", "gateway backend should see rewritten URI /")
 }
 
 func (s *RewriteTargetSuite) TestCaptureGroupRewriteDeepPath() {
@@ -290,6 +353,11 @@ func (s *RewriteTargetSuite) TestCaptureGroupRewriteDeepPath() {
 
 	assert.Contains(s.T(), nginxResp.Body, "GET /v1/users/123 HTTP/1.1", "nginx backend should see URI /v1/users/123")
 	assert.Contains(s.T(), traefikResp.Body, "GET /v1/users/123 HTTP/1.1", "traefik backend should see URI /v1/users/123")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), rewriteCaptureGatewayHost, http.MethodGet, "/api/v1/users/123", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Contains(s.T(), gatewayResp.Body, "GET /v1/users/123 HTTP/1.1", "gateway backend should see rewritten URI /v1/users/123")
 }
 
 // requestNoRegex makes the same HTTP request against both clusters using the no-regex ingress hosts.
@@ -317,6 +385,11 @@ func (s *RewriteTargetSuite) TestNoRegexRewriteBehavior() {
 	// Both should rewrite to /rewritten since rewrite-target applies regardless of use-regex.
 	assert.Contains(s.T(), nginxResp.Body, "GET /rewritten HTTP/1.1", "nginx backend should see rewritten URI")
 	assert.Contains(s.T(), traefikResp.Body, "GET /rewritten HTTP/1.1", "traefik backend should see rewritten URI")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), noRegexGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Contains(s.T(), gatewayResp.Body, "GET /rewritten HTTP/1.1", "gateway backend should see rewritten URI")
 }
 
 // requestExactPath makes the same HTTP request against both clusters using the exact-path rewrite hosts.
@@ -340,6 +413,11 @@ func (s *RewriteTargetSuite) TestExactPathRewrite() {
 
 	assert.Contains(s.T(), nginxResp.Body, "GET /rewritten HTTP/1.1", "nginx backend should see URI /rewritten")
 	assert.Contains(s.T(), traefikResp.Body, "GET /rewritten HTTP/1.1", "traefik backend should see URI /rewritten")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), exactPathGatewayHost, http.MethodGet, "/original", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Contains(s.T(), gatewayResp.Body, "GET /rewritten HTTP/1.1", "gateway backend should see rewritten URI /rewritten")
 }
 
 func (s *RewriteTargetSuite) TestFullPathRewriteNoRegexPath() {
@@ -355,6 +433,11 @@ func (s *RewriteTargetSuite) TestFullPathRewriteNoRegexPath() {
 	assert.Equal(s.T(), "https://bar.example.org/", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
 	assert.Equal(s.T(), "https://bar.example.org/", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
 
+	gatewayResp := s.gateway.MakeRequest(s.T(), fullPathNoRegexGatewayHost, http.MethodGet, "/original", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Equal(s.T(), "https://bar.example.org/", gatewayResp.ResponseHeaders.Get("Location"), "gateway migration: Location header mismatch for /original")
+
 	traefikResp = s.traefik.MakeRequest(s.T(), fullPathNoRegexTraefikHost, http.MethodGet, "/original/other", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 
@@ -367,6 +450,11 @@ func (s *RewriteTargetSuite) TestFullPathRewriteNoRegexPath() {
 	assert.Equal(s.T(), "https://bar.example.org/", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
 	assert.Equal(s.T(), "https://bar.example.org/", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
 
+	gatewayResp = s.gateway.MakeRequest(s.T(), fullPathNoRegexGatewayHost, http.MethodGet, "/original/other", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Equal(s.T(), "https://bar.example.org/", gatewayResp.ResponseHeaders.Get("Location"), "gateway migration: Location header mismatch for /original/other")
+
 	traefikResp = s.traefik.MakeRequest(s.T(), fullPathNoRegexTraefikHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 
@@ -378,6 +466,11 @@ func (s *RewriteTargetSuite) TestFullPathRewriteNoRegexPath() {
 
 	assert.Equal(s.T(), "https://bar.example.org/", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
 	assert.Equal(s.T(), "https://bar.example.org/", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
+
+	gatewayResp = s.gateway.MakeRequest(s.T(), fullPathNoRegexGatewayHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Equal(s.T(), "https://bar.example.org/", gatewayResp.ResponseHeaders.Get("Location"), "gateway migration: Location header mismatch for /original/a/b/c")
 }
 
 func (s *RewriteTargetSuite) TestFullPathRewriteWithRegexPath() {
@@ -393,6 +486,11 @@ func (s *RewriteTargetSuite) TestFullPathRewriteWithRegexPath() {
 	assert.Equal(s.T(), "https://bar.example.org/", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
 	assert.Equal(s.T(), "https://bar.example.org/", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
 
+	gatewayResp := s.gateway.MakeRequest(s.T(), fullPathWithPathRegexGatewayHost, http.MethodGet, "/original", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Equal(s.T(), "https://bar.example.org/", gatewayResp.ResponseHeaders.Get("Location"), "gateway migration: Location header mismatch for /original")
+
 	traefikResp = s.traefik.MakeRequest(s.T(), fullPathWithPathRegexTraefikHost, http.MethodGet, "/original/other", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 
@@ -405,6 +503,11 @@ func (s *RewriteTargetSuite) TestFullPathRewriteWithRegexPath() {
 	assert.Equal(s.T(), "https://bar.example.org/other", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
 	assert.Equal(s.T(), "https://bar.example.org/other", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
 
+	gatewayResp = s.gateway.MakeRequest(s.T(), fullPathWithPathRegexGatewayHost, http.MethodGet, "/original/other", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Equal(s.T(), "https://bar.example.org/other", gatewayResp.ResponseHeaders.Get("Location"), "gateway migration: Location header mismatch for /original/other")
+
 	traefikResp = s.traefik.MakeRequest(s.T(), fullPathWithPathRegexTraefikHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 
@@ -416,4 +519,9 @@ func (s *RewriteTargetSuite) TestFullPathRewriteWithRegexPath() {
 
 	assert.Equal(s.T(), "https://bar.example.org/a/b/c", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
 	assert.Equal(s.T(), "https://bar.example.org/a/b/c", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
+
+	gatewayResp = s.gateway.MakeRequest(s.T(), fullPathWithPathRegexGatewayHost, http.MethodGet, "/original/a/b/c", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Equal(s.T(), "https://bar.example.org/a/b/c", gatewayResp.ResponseHeaders.Get("Location"), "gateway migration: Location header mismatch for /original/a/b/c")
 }

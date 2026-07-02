@@ -1,0 +1,25 @@
+---
+# Migrated from: canary: "true" + canary-weight: 200 + canary-weight-total: 200
+# 200/200 = 100% of traffic to the canary backend.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-canary-wt-total
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - canary-wt-total.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: backend
+          port: 80
+          weight: 0
+        - name: canary-backend
+          port: 80
+          weight: 200

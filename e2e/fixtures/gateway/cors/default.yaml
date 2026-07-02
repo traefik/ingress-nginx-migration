@@ -1,0 +1,58 @@
+---
+# Migrated from CORS Ingress with defaults only (enable-cors: "true")
+# Ingress-nginx provider defaults applied:
+#   credentials: true, origin: *, standard methods/headers, max-age: 1728000
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-cors-default-test-cors
+  namespace: default
+spec:
+  headers:
+    accessControlAllowCredentials: true
+    accessControlAllowOriginList:
+      - "*"
+    accessControlAllowMethods:
+      - GET
+      - PUT
+      - POST
+      - DELETE
+      - PATCH
+      - OPTIONS
+    accessControlAllowHeaders:
+      - DNT
+      - Keep-Alive
+      - User-Agent
+      - X-Requested-With
+      - If-Modified-Since
+      - Cache-Control
+      - Content-Type
+      - Range
+      - Authorization
+    accessControlMaxAge: 1728000
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-cors-default-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - cors-default-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-cors-default-test-cors
+      backendRefs:
+        - name: backend
+          port: 80

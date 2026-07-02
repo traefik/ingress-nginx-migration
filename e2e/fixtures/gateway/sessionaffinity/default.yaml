@@ -1,0 +1,37 @@
+---
+# Migrated from session affinity Ingress with default settings (affinity: "cookie").
+# Default cookie name in ingress-nginx is INGRESSCOOKIE.
+apiVersion: traefik.io/v1alpha1
+kind: TraefikService
+metadata:
+  name: gateway-affinity-default-test-sticky
+  namespace: default
+spec:
+  weighted:
+    services:
+      - name: backend
+        port: 80
+        weight: 1
+    sticky:
+      cookie:
+        name: INGRESSCOOKIE
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-affinity-default-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - affinity-default-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: traefik.io
+          kind: TraefikService
+          name: gateway-affinity-default-test-sticky

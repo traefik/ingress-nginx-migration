@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -40,6 +41,12 @@ const (
 	proxySSLServerNameIngressName = "proxy-ssl-svrname-test"
 	proxySSLServerNameTraefikHost = proxySSLServerNameIngressName + ".traefik.local"
 	proxySSLServerNameNginxHost   = proxySSLServerNameIngressName + ".nginx.local"
+
+	proxySSLBasicGatewayHost      = proxySSLBasicIngressName + ".gateway.local"
+	proxySSLVerifyOffGatewayHost  = proxySSLVerifyOffIngressName + ".gateway.local"
+	proxySSLVerifyOnGatewayHost   = proxySSLVerifyOnIngressName + ".gateway.local"
+	proxySSLNameGatewayHost       = proxySSLNameIngressName + ".gateway.local"
+	proxySSLServerNameGatewayHost = proxySSLServerNameIngressName + ".gateway.local"
 
 	// Resource names.
 	httpsBackendName          = "https-backend"
@@ -146,6 +153,27 @@ func (s *ProxySSLSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/proxy-ssl-server-name": "on",
 	})
 
+	// Deploy CA cert as ConfigMap for Gateway API BackendTLSPolicy (verify-on).
+	// BackendTLSPolicy only accepts ConfigMaps for CA certs, not Secrets.
+	// Use kubectl create configmap directly because the PEM cert is multi-line
+	// and the YAML template's quote function doesn't handle it correctly.
+	_ = s.gateway.Kubectl("delete", "configmap", "proxy-ssl-ca-configmap", "-n", testNamespace, "--ignore-not-found")
+	err = s.gateway.Kubectl("create", "configmap", "proxy-ssl-ca-configmap",
+		"--from-literal=ca.crt="+string(s.certs.caCertPEM),
+		"-n", testNamespace)
+	require.NoError(s.T(), err, "deploy CA cert configmap for gateway")
+
+	// Deploy Gateway API equivalents.
+	// Deploy the shared BackendTLSPolicy first, then the HTTPRoutes.
+	gwDir := filepath.Join(fixturesDir, "gateway", "proxyssl")
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, "backend-tls-policy.yaml"))
+	require.NoError(s.T(), err, "deploy shared BackendTLSPolicy")
+
+	for _, f := range []string{"basic.yaml", "verify-off.yaml", "verify-on.yaml", "name.yaml", "servername.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	// Wait for all ingresses to be ready.
 	for _, h := range []struct {
 		host    string
@@ -163,6 +191,16 @@ func (s *ProxySSLSuite) SetupSuite() {
 		{proxySSLServerNameNginxHost, s.nginx},
 	} {
 		h.cluster.WaitForIngressReady(s.T(), h.host, 30, 1*time.Second)
+	}
+
+	for _, h := range []string{
+		proxySSLBasicGatewayHost,
+		proxySSLVerifyOffGatewayHost,
+		proxySSLVerifyOnGatewayHost,
+		proxySSLNameGatewayHost,
+		proxySSLServerNameGatewayHost,
+	} {
+		s.gateway.WaitForIngressReady(s.T(), h, 60, 1*time.Second)
 	}
 }
 
@@ -187,6 +225,12 @@ func (s *ProxySSLSuite) TearDownSuite() {
 
 	_ = s.traefik.Kubectl("delete", "deployment", httpsBackendName, "-n", testNamespace, "--ignore-not-found")
 	_ = s.traefik.Kubectl("delete", "service", httpsBackendName, "-n", testNamespace, "--ignore-not-found")
+
+	_ = s.gateway.DeleteConfigMap("proxy-ssl-ca-configmap")
+	gwDir := filepath.Join(fixturesDir, "gateway", "proxyssl")
+	for _, f := range []string{"backend-tls-policy.yaml", "basic.yaml", "verify-off.yaml", "verify-on.yaml", "name.yaml", "servername.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // deployHTTPSBackend deploys an nginx-based HTTPS backend into the cluster.
@@ -397,6 +441,10 @@ func (s *ProxySSLSuite) TestProxySSLSecretBasic() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 with proxy-ssl-secret and HTTPS backend")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLBasicGatewayHost, http.MethodGet, "/", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxySSLSuite) TestProxySSLSecretBasicOnSubpath() {
@@ -408,6 +456,10 @@ func (s *ProxySSLSuite) TestProxySSLSecretBasicOnSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch on subpath")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 on subpath with proxy-ssl-secret")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLBasicGatewayHost, http.MethodGet, "/some/path", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxySSLSuite) TestProxySSLSecretBasicPOST() {
@@ -419,6 +471,10 @@ func (s *ProxySSLSuite) TestProxySSLSecretBasicPOST() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch for POST")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 for POST with proxy-ssl-secret")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLBasicGatewayHost, http.MethodPost, "/", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxySSLSuite) TestProxySSLVerifyOff() {
@@ -432,6 +488,10 @@ func (s *ProxySSLSuite) TestProxySSLVerifyOff() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 with proxy-ssl-verify=off")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLVerifyOffGatewayHost, http.MethodGet, "/", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxySSLSuite) TestProxySSLVerifyOnWithCA() {
@@ -444,6 +504,10 @@ func (s *ProxySSLSuite) TestProxySSLVerifyOnWithCA() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 with proxy-ssl-verify=on and valid CA")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLVerifyOnGatewayHost, http.MethodGet, "/", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxySSLSuite) TestProxySSLVerifyOnWithCAOnSubpath() {
@@ -455,6 +519,10 @@ func (s *ProxySSLSuite) TestProxySSLVerifyOnWithCAOnSubpath() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch on subpath")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 on subpath with proxy-ssl-verify=on and valid CA")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLVerifyOnGatewayHost, http.MethodGet, "/another/path", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxySSLSuite) TestProxySSLName() {
@@ -467,6 +535,10 @@ func (s *ProxySSLSuite) TestProxySSLName() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 with proxy-ssl-name")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLNameGatewayHost, http.MethodGet, "/", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxySSLSuite) TestProxySSLServerName() {
@@ -479,6 +551,10 @@ func (s *ProxySSLSuite) TestProxySSLServerName() {
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
 		"expected 200 with proxy-ssl-server-name")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLServerNameGatewayHost, http.MethodGet, "/", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *ProxySSLSuite) TestProxySSLSecretPreservesHeaders() {
@@ -490,4 +566,8 @@ func (s *ProxySSLSuite) TestProxySSLSecretPreservesHeaders() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), proxySSLBasicGatewayHost, http.MethodGet, "/", map[string]string{"X-Custom-Test": "proxy-ssl"}, 5, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }

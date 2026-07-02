@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,6 +21,9 @@ const (
 	noVhostNginxHost   = noVhostIngressName + ".nginx.local"
 
 	customUpstreamHost = "custom.backend.internal"
+
+	upstreamVhostGatewayHost = "upstream-vhost-test.gateway.local"
+	noVhostGatewayHost       = "no-vhost-test.gateway.local"
 )
 
 type UpstreamVhostSuite struct {
@@ -51,10 +55,19 @@ func (s *UpstreamVhostSuite) SetupSuite() {
 	err = s.nginx.DeployIngress(noVhostIngressName, noVhostNginxHost, nil)
 	require.NoError(s.T(), err, "deploy no-vhost ingress to nginx cluster")
 
+	// Deploy Gateway API equivalents.
+	gwDir := filepath.Join(fixturesDir, "gateway", "upstreamvhost")
+	for _, f := range []string{"vhost.yaml", "no-vhost.yaml"} {
+		err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, f))
+		require.NoError(s.T(), err, "deploy gateway fixture %s", f)
+	}
+
 	s.traefik.WaitForIngressReady(s.T(), upstreamVhostTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), upstreamVhostNginxHost, 20, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), noVhostTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), noVhostNginxHost, 20, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), upstreamVhostGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), noVhostGatewayHost, 60, 1*time.Second)
 }
 
 func (s *UpstreamVhostSuite) TearDownSuite() {
@@ -62,6 +75,11 @@ func (s *UpstreamVhostSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(upstreamVhostIngressName)
 	_ = s.traefik.DeleteIngress(noVhostIngressName)
 	_ = s.nginx.DeleteIngress(noVhostIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "upstreamvhost")
+	for _, f := range []string{"vhost.yaml", "no-vhost.yaml"} {
+		_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, f))
+	}
 }
 
 // requestVhost makes the same HTTP request against both clusters using the upstream-vhost ingress.
@@ -107,6 +125,12 @@ func (s *UpstreamVhostSuite) TestUpstreamVhostOverridesHost() {
 		"traefik backend should see Host: %s", customUpstreamHost)
 	assert.Equal(s.T(), customUpstreamHost, nginxResp.RequestHeaders["Host"],
 		"nginx backend should see Host: %s", customUpstreamHost)
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), upstreamVhostGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Equal(s.T(), customUpstreamHost, gatewayResp.RequestHeaders["Host"],
+		"gateway backend should see Host: %s", customUpstreamHost)
 }
 
 func (s *UpstreamVhostSuite) TestNoVhostUsesOriginalHost() {
@@ -120,6 +144,10 @@ func (s *UpstreamVhostSuite) TestNoVhostUsesOriginalHost() {
 		"traefik backend should see original Host header")
 	assert.Equal(s.T(), noVhostNginxHost, nginxResp.RequestHeaders["Host"],
 		"nginx backend should see original Host header")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), noVhostGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *UpstreamVhostSuite) TestUpstreamVhostOnSubpath() {
@@ -135,6 +163,12 @@ func (s *UpstreamVhostSuite) TestUpstreamVhostOnSubpath() {
 	)
 	assert.Equal(s.T(), customUpstreamHost, traefikResp.RequestHeaders["Host"],
 		"traefik backend should see Host: %s on subpath", customUpstreamHost)
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), upstreamVhostGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
+	assert.Equal(s.T(), customUpstreamHost, gatewayResp.RequestHeaders["Host"],
+		"gateway backend should see Host: %s on subpath", customUpstreamHost)
 }
 
 func (s *UpstreamVhostSuite) TestUpstreamVhostPreservesOtherHeaders() {
@@ -150,4 +184,8 @@ func (s *UpstreamVhostSuite) TestUpstreamVhostPreservesOtherHeaders() {
 		traefikResp.RequestHeaders["X-Custom-Header"],
 		"custom header should be forwarded to backend",
 	)
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), upstreamVhostGatewayHost, http.MethodGet, "/", map[string]string{"X-Custom-Header": "test-value"}, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }

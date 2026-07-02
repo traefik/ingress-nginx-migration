@@ -1,0 +1,25 @@
+---
+# Migrated from: ssl-redirect: "true"
+# MIGRATION GAP: ssl-redirect only triggers when TLS is configured on the Ingress,
+# but Gateway API RequestRedirect always redirects regardless of TLS config.
+# The migrated route will therefore redirect HTTP requests unconditionally.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-ssl-redirect-explicit-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - ssl-redirect-explicit-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

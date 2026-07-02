@@ -1,0 +1,38 @@
+---
+# Migrated: whitelist-source-range: "10.0.0.0/8,172.16.0.0/12,0.0.0.0/0"
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-whitelist-multi-cidr-test-ipallow
+  namespace: default
+spec:
+  ipAllowList:
+    sourceRange:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "0.0.0.0/0"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-whitelist-multi-cidr-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - whitelist-multi-cidr-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-whitelist-multi-cidr-test-ipallow
+      backendRefs:
+        - name: backend
+          port: 80

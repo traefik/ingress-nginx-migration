@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -34,6 +35,12 @@ const (
 	backendProtocolHTTPSIngressName = "backend-protocol-https-test"
 	backendProtocolHTTPSTraefikHost = backendProtocolHTTPSIngressName + ".traefik.local"
 	backendProtocolHTTPSNginxHost   = backendProtocolHTTPSIngressName + ".nginx.local"
+
+	serviceUpstreamGatewayHost      = serviceUpstreamIngressName + ".gateway.local"
+	noServiceUpstreamGatewayHost    = noServiceUpstreamIngressName + ".gateway.local"
+	serviceUpstreamFalseGatewayHost = serviceUpstreamFalseIngressName + ".gateway.local"
+	backendProtocolHTTPGatewayHost  = backendProtocolHTTPIngressName + ".gateway.local"
+	noBackendProtocolGatewayHost    = noBackendProtocolIngressName + ".gateway.local"
 )
 
 type BackendConfigSuite struct {
@@ -118,6 +125,29 @@ func (s *BackendConfigSuite) SetupSuite() {
 	s.traefik.WaitForIngressReady(s.T(), noBackendProtocolTraefikHost, 20, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), noBackendProtocolNginxHost, 20, 1*time.Second)
 	// Note: HTTPS backend ingress may not become "ready" since backend doesn't speak TLS.
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "backendconfig")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, "service-upstream.yaml"))
+	require.NoError(s.T(), err, "deploy service-upstream gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, "no-service-upstream.yaml"))
+	require.NoError(s.T(), err, "deploy no-service-upstream gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, "service-upstream-false.yaml"))
+	require.NoError(s.T(), err, "deploy service-upstream-false gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, "backend-protocol-http.yaml"))
+	require.NoError(s.T(), err, "deploy backend-protocol-http gateway fixture")
+
+	err = s.gateway.DeployGatewayFixture(filepath.Join(gwDir, "no-backend-protocol.yaml"))
+	require.NoError(s.T(), err, "deploy no-backend-protocol gateway fixture")
+
+	s.gateway.WaitForIngressReady(s.T(), serviceUpstreamGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), noServiceUpstreamGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), serviceUpstreamFalseGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), backendProtocolHTTPGatewayHost, 60, 1*time.Second)
+	s.gateway.WaitForIngressReady(s.T(), noBackendProtocolGatewayHost, 60, 1*time.Second)
 }
 
 func (s *BackendConfigSuite) TearDownSuite() {
@@ -133,6 +163,13 @@ func (s *BackendConfigSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(noBackendProtocolIngressName)
 	_ = s.traefik.DeleteIngress(backendProtocolHTTPSIngressName)
 	_ = s.nginx.DeleteIngress(backendProtocolHTTPSIngressName)
+
+	gwDir := filepath.Join(fixturesDir, "gateway", "backendconfig")
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, "service-upstream.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, "no-service-upstream.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, "service-upstream-false.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, "backend-protocol-http.yaml"))
+	_ = s.gateway.DeleteGatewayFixture(filepath.Join(gwDir, "no-backend-protocol.yaml"))
 }
 
 func (s *BackendConfigSuite) requestServiceUpstream(method, path string, headers map[string]string) (traefikResp, nginxResp *Response) {
@@ -202,6 +239,10 @@ func (s *BackendConfigSuite) TestServiceUpstreamReturnsOK() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with service-upstream=true")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), serviceUpstreamGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestNoServiceUpstreamReturnsOK() {
@@ -209,6 +250,10 @@ func (s *BackendConfigSuite) TestNoServiceUpstreamReturnsOK() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 without service-upstream")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), noServiceUpstreamGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestServiceUpstreamFalseReturnsOK() {
@@ -216,6 +261,10 @@ func (s *BackendConfigSuite) TestServiceUpstreamFalseReturnsOK() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with service-upstream=false")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), serviceUpstreamFalseGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestServiceUpstreamOnSubpath() {
@@ -223,6 +272,10 @@ func (s *BackendConfigSuite) TestServiceUpstreamOnSubpath() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 on subpath with service-upstream")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), serviceUpstreamGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestServiceUpstreamPreservesHeaders() {
@@ -234,6 +287,10 @@ func (s *BackendConfigSuite) TestServiceUpstreamPreservesHeaders() {
 		"traefik should preserve custom header with service-upstream")
 	assert.Equal(s.T(), "service-upstream", nginxResp.RequestHeaders["X-Custom-Test"],
 		"nginx should preserve custom header with service-upstream")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), serviceUpstreamGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestServiceUpstreamAndNoUpstreamBothServe() {
@@ -246,6 +303,14 @@ func (s *BackendConfigSuite) TestServiceUpstreamAndNoUpstreamBothServe() {
 		"no service-upstream should return 200")
 	assert.NotEmpty(s.T(), traefikUpstream.Body, "service-upstream should return a body")
 	assert.NotEmpty(s.T(), traefikNoUpstream.Body, "no service-upstream should return a body")
+
+	gatewayUpstreamResp := s.gateway.MakeRequest(s.T(), serviceUpstreamGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayUpstreamResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikUpstream.StatusCode, gatewayUpstreamResp.StatusCode, "gateway migration: status code mismatch")
+
+	gatewayNoUpstreamResp := s.gateway.MakeRequest(s.T(), noServiceUpstreamGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayNoUpstreamResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikNoUpstream.StatusCode, gatewayNoUpstreamResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestServiceUpstreamFalseMatchesNoAnnotation() {
@@ -256,6 +321,14 @@ func (s *BackendConfigSuite) TestServiceUpstreamFalseMatchesNoAnnotation() {
 		"traefik: service-upstream=false should match no annotation")
 	assert.Equal(s.T(), nginxNone.StatusCode, nginxFalse.StatusCode,
 		"nginx: service-upstream=false should match no annotation")
+
+	gatewayFalseResp := s.gateway.MakeRequest(s.T(), serviceUpstreamFalseGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayFalseResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikFalse.StatusCode, gatewayFalseResp.StatusCode, "gateway migration: status code mismatch")
+
+	gatewayNoneResp := s.gateway.MakeRequest(s.T(), noServiceUpstreamGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayNoneResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikNone.StatusCode, gatewayNoneResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 // --- backend-protocol tests ---
@@ -265,6 +338,10 @@ func (s *BackendConfigSuite) TestBackendProtocolHTTPReturnsOK() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 with backend-protocol=HTTP")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), backendProtocolHTTPGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestNoBackendProtocolReturnsOK() {
@@ -272,6 +349,10 @@ func (s *BackendConfigSuite) TestNoBackendProtocolReturnsOK() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 without backend-protocol")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), noBackendProtocolGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestBackendProtocolHTTPMatchesDefault() {
@@ -282,6 +363,14 @@ func (s *BackendConfigSuite) TestBackendProtocolHTTPMatchesDefault() {
 		"traefik: explicit HTTP should match default")
 	assert.Equal(s.T(), nginxNone.StatusCode, nginxHTTP.StatusCode,
 		"nginx: explicit HTTP should match default")
+
+	gatewayHTTPResp := s.gateway.MakeRequest(s.T(), backendProtocolHTTPGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayHTTPResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikHTTP.StatusCode, gatewayHTTPResp.StatusCode, "gateway migration: status code mismatch")
+
+	gatewayNoneResp := s.gateway.MakeRequest(s.T(), noBackendProtocolGatewayHost, http.MethodGet, "/", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayNoneResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikNone.StatusCode, gatewayNoneResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestBackendProtocolHTTPOnSubpath() {
@@ -289,6 +378,10 @@ func (s *BackendConfigSuite) TestBackendProtocolHTTPOnSubpath() {
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 on subpath with backend-protocol=HTTP")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), backendProtocolHTTPGatewayHost, http.MethodGet, "/some/path", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestBackendProtocolHTTPPreservesHeaders() {
@@ -300,10 +393,15 @@ func (s *BackendConfigSuite) TestBackendProtocolHTTPPreservesHeaders() {
 		"traefik should preserve custom header")
 	assert.Equal(s.T(), "backend-protocol-http", nginxResp.RequestHeaders["X-Custom-Test"],
 		"nginx should preserve custom header")
+
+	gatewayResp := s.gateway.MakeRequest(s.T(), backendProtocolHTTPGatewayHost, http.MethodGet, "/", headers, 3, 1*time.Second)
+	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
+	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 }
 
 func (s *BackendConfigSuite) TestBackendProtocolHTTPSFailsConsistently() {
 	// HTTPS against an HTTP-only backend should fail on both controllers.
+	// Gateway API backend-protocol HTTPS not tested (no BackendTLSPolicy fixture).
 	traefikResp := s.traefik.MakeRequest(s.T(), backendProtocolHTTPSTraefikHost, http.MethodGet, "/", nil, 3, 1*time.Second)
 	nginxResp := s.nginx.MakeRequest(s.T(), backendProtocolHTTPSNginxHost, http.MethodGet, "/", nil, 3, 1*time.Second)
 

@@ -1,0 +1,37 @@
+---
+# Migrated from ingress-nginx limit-rps: "10"
+# burst = limit-rps * limit-burst-multiplier (default 5) = 10 * 5 = 50
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-ratelimit-rps-test-ratelimit
+  namespace: default
+spec:
+  rateLimit:
+    average: 10
+    burst: 50
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-ratelimit-rps-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - ratelimit-rps-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-ratelimit-rps-test-ratelimit
+      backendRefs:
+        - name: backend
+          port: 80

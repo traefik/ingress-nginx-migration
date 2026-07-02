@@ -1,0 +1,44 @@
+---
+# Migrated from: canary: "true" + canary-by-cookie: canary_enabled
+# Gateway API does not have a dedicated cookie matcher; this fixture approximates
+# cookie routing via an exact match on the Cookie header.
+# MIGRATION GAP: requests carrying multiple cookies (e.g. "other=foo; canary_enabled=always")
+# will NOT match the canary route and fall through to production.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-canary-cookie
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - canary-cookie.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - name: Cookie
+              value: canary_enabled=always
+      backendRefs:
+        - name: canary-backend
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - name: Cookie
+              value: canary_enabled=never
+      backendRefs:
+        - name: backend
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: backend
+          port: 80
