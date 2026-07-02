@@ -40,6 +40,16 @@ func TestSessionAffinitySuite(t *testing.T) {
 func (s *SessionAffinitySuite) SetupSuite() {
 	s.BaseSuite.SetupSuite()
 
+	// nginx-ingress Lua balancer merges sticky-session configs per upstream (service:port).
+	// When multiple ingresses route to the same "backend:80" upstream, the last-applied
+	// sticky config wins for ALL of them. Deploy isolated services so each ingress gets
+	// its own Lua upstream instance and its own cookie configuration.
+	for _, svcName := range []string{"backend-sa-default", "backend-sa-custom", "backend-sa-extended"} {
+		manifest := "apiVersion: v1\nkind: Service\nmetadata:\n  name: " + svcName + "\nspec:\n  selector:\n    app: backend\n  ports:\n  - port: 80\n    targetPort: 80"
+		err := s.nginx.ApplyManifest(manifest)
+		require.NoError(s.T(), err, "deploy isolated service %s", svcName)
+	}
+
 	// Default affinity: cookie with default settings.
 	defaultAnnotations := map[string]string{
 		"nginx.ingress.kubernetes.io/affinity": "cookie",
@@ -48,7 +58,13 @@ func (s *SessionAffinitySuite) SetupSuite() {
 	err := s.traefik.DeployIngress(affinityDefaultIngressName, affinityDefaultTraefikHost, defaultAnnotations)
 	require.NoError(s.T(), err, "deploy default affinity ingress to traefik cluster")
 
-	err = s.nginx.DeployIngress(affinityDefaultIngressName, affinityDefaultNginxHost, defaultAnnotations)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        affinityDefaultIngressName,
+		Host:        affinityDefaultNginxHost,
+		Annotations: defaultAnnotations,
+		ServiceName: "backend-sa-default",
+		ServicePort: 80,
+	})
 	require.NoError(s.T(), err, "deploy default affinity ingress to nginx cluster")
 
 	// Custom affinity with all cookie parameters.
@@ -64,21 +80,33 @@ func (s *SessionAffinitySuite) SetupSuite() {
 	err = s.traefik.DeployIngress(affinityCustomIngressName, affinityCustomTraefikHost, customAnnotations)
 	require.NoError(s.T(), err, "deploy custom affinity ingress to traefik cluster")
 
-	err = s.nginx.DeployIngress(affinityCustomIngressName, affinityCustomNginxHost, customAnnotations)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        affinityCustomIngressName,
+		Host:        affinityCustomNginxHost,
+		Annotations: customAnnotations,
+		ServiceName: "backend-sa-custom",
+		ServicePort: 80,
+	})
 	require.NoError(s.T(), err, "deploy custom affinity ingress to nginx cluster")
 
 	// Extended affinity with domain and expires.
 	extendedAnnotations := map[string]string{
-		"nginx.ingress.kubernetes.io/affinity":                "cookie",
-		"nginx.ingress.kubernetes.io/session-cookie-name":     "EXTSESSION",
-		"nginx.ingress.kubernetes.io/session-cookie-domain":   ".example.com",
-		"nginx.ingress.kubernetes.io/session-cookie-expires":  "172800",
+		"nginx.ingress.kubernetes.io/affinity":               "cookie",
+		"nginx.ingress.kubernetes.io/session-cookie-name":    "EXTSESSION",
+		"nginx.ingress.kubernetes.io/session-cookie-domain":  ".example.com",
+		"nginx.ingress.kubernetes.io/session-cookie-expires": "172800",
 	}
 
 	err = s.traefik.DeployIngress(affinityExtendedIngressName, affinityExtendedTraefikHost, extendedAnnotations)
 	require.NoError(s.T(), err, "deploy extended affinity ingress to traefik cluster")
 
-	err = s.nginx.DeployIngress(affinityExtendedIngressName, affinityExtendedNginxHost, extendedAnnotations)
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        affinityExtendedIngressName,
+		Host:        affinityExtendedNginxHost,
+		Annotations: extendedAnnotations,
+		ServiceName: "backend-sa-extended",
+		ServicePort: 80,
+	})
 	require.NoError(s.T(), err, "deploy extended affinity ingress to nginx cluster")
 
 	// Deploy Gateway API equivalents using TraefikService sticky cookie CRDs.
@@ -113,6 +141,9 @@ func (s *SessionAffinitySuite) TearDownSuite() {
 	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "default.yaml"))
 	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "custom.yaml"))
 	_ = s.gateway.DeleteGatewayFixture(filepath.Join(fixturesDir, "gateway", "sessionaffinity", "extended.yaml"))
+	for _, svcName := range []string{"backend-sa-default", "backend-sa-custom", "backend-sa-extended"} {
+		_ = s.nginx.Kubectl("delete", "service", svcName, "-n", testNamespace, "--ignore-not-found")
+	}
 }
 
 // requestDefault makes the same HTTP request against both clusters using the default affinity ingress.
