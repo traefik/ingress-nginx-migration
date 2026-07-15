@@ -276,3 +276,35 @@ func (s *SSLRedirectSuite) TestSSLRedirectPreservesQueryString() {
 	assert.True(s.T(), strings.HasSuffix(gatewayLocation, "/path?key=value"),
 		"gateway Location should preserve query string, got: %s", gatewayLocation)
 }
+
+// TestSSLRedirectBypassedByXForwardedProto verifies that when X-Forwarded-Proto: https is present,
+// the ssl-redirect is skipped and the request reaches the backend (LB-terminated TLS scenario).
+// This requires nginx to be configured with use-forwarded-headers: true (set in nginx-helmchart.yaml).
+func (s *SSLRedirectSuite) TestSSLRedirectBypassedByXForwardedProto() {
+	headers := map[string]string{"X-Forwarded-Proto": "https"}
+	traefikResp, nginxResp := s.redirectRequest(http.MethodGet, "/", headers)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
+		"X-Forwarded-Proto: https should bypass ssl-redirect and reach the backend")
+
+	assert.Empty(s.T(), traefikResp.ResponseHeaders.Get("Location"),
+		"traefik should not redirect when X-Forwarded-Proto is already https")
+	assert.Empty(s.T(), nginxResp.ResponseHeaders.Get("Location"),
+		"nginx should not redirect when X-Forwarded-Proto is already https (requires use-forwarded-headers: true)")
+}
+
+// TestSSLRedirectBypassXForwardedProtoPreservesPath verifies that bypassed requests preserve the request path.
+func (s *SSLRedirectSuite) TestSSLRedirectBypassXForwardedProtoPreservesPath() {
+	headers := map[string]string{"X-Forwarded-Proto": "https"}
+	traefikResp, nginxResp := s.redirectRequest(http.MethodGet, "/some/path", headers)
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
+		"bypassed request should reach backend")
+
+	assert.True(s.T(), strings.Contains(traefikResp.Body, "/some/path"),
+		"backend should receive the original path, traefik body: %s", traefikResp.Body)
+	assert.True(s.T(), strings.Contains(nginxResp.Body, "/some/path"),
+		"backend should receive the original path, nginx body: %s", nginxResp.Body)
+}
