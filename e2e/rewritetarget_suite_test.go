@@ -524,4 +524,21 @@ func (s *RewriteTargetSuite) TestFullPathRewriteWithRegexPath() {
 	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
 	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 	assert.Equal(s.T(), "https://bar.example.org/a/b/c", gatewayResp.ResponseHeaders.Get("Location"), "gateway migration: Location header mismatch for /original/a/b/c")
+
+	// The prefix immediately followed by non-slash chars must not leak the
+	// suffix into the redirect URL.
+	traefikResp = s.traefik.MakeRequest(s.T(), fullPathWithPathRegexTraefikHost, http.MethodGet, "/originalfoo", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+
+	nginxResp = s.nginx.MakeRequest(s.T(), fullPathWithPathRegexNginxHost, http.MethodGet, "/originalfoo", nil, 3, 1*time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusFound, traefikResp.StatusCode, "expected 302")
+
+	assert.Equal(s.T(), "https://bar.example.org/", nginxResp.ResponseHeaders.Get("Location"), "nginx backend should redirect to rewrite target full URL")
+	assert.Equal(s.T(), "https://bar.example.org/", traefikResp.ResponseHeaders.Get("Location"), "traefik backend should redirect to rewrite target full URL")
+
+	// TODO: the Gateway API migration answers 404 here instead of the 302
+	// nginx and Traefik return; add the gateway assertions once fixed.
 }
