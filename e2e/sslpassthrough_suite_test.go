@@ -375,6 +375,45 @@ func (s *SSLPassthroughSuite) TestSSLPassthroughResponseBody() {
 		"gateway migration: response body should come from the passthrough backend")
 }
 
+// TestSSLPassthroughHTTPWithoutRedirect verifies the behavior of a plain HTTP
+// request to an ssl-passthrough host that has no force-ssl-redirect annotation.
+func (s *SSLPassthroughSuite) TestSSLPassthroughHTTPWithoutRedirect() {
+	traefikResp := s.traefik.MakeRequest(s.T(), sslPassthroughTraefikHost, http.MethodGet, "/", nil, 10, 2*time.Second)
+	nginxResp := s.nginx.MakeRequest(s.T(), sslPassthroughNginxHost, http.MethodGet, "/", nil, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	// Both controllers keep an HTTP server for passthrough hosts and proxy the
+	// plain HTTP request to the TLS backend, which rejects it with
+	// "400 The plain HTTP request was sent to HTTPS port".
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusBadRequest, traefikResp.StatusCode,
+		"plain HTTP proxied to the TLS backend is rejected by the backend")
+}
+
+// TestSSLPassthroughRedirectBypassedByXForwardedProto verifies the behavior when
+// X-Forwarded-Proto: https is set on a plain HTTP request to an ssl-passthrough
+// host with force-ssl-redirect (LB-terminated TLS scenario).
+func (s *SSLPassthroughSuite) TestSSLPassthroughRedirectBypassedByXForwardedProto() {
+	headers := map[string]string{"X-Forwarded-Proto": "https"}
+
+	traefikResp := s.traefik.MakeRequest(s.T(), sslPassthroughCertTraefikHost, http.MethodGet, "/", headers, 10, 2*time.Second)
+	nginxResp := s.nginx.MakeRequest(s.T(), sslPassthroughCertNginxHost, http.MethodGet, "/", headers, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	// Both controllers skip the redirect (X-Forwarded-Proto: https with
+	// use-forwarded-headers: true) and proxy the request to the backend over
+	// HTTPS (backend-protocol: HTTPS).
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
+		"X-Forwarded-Proto https bypasses the redirect and reaches the backend")
+	assert.Contains(s.T(), traefikResp.Body, "passthrough-backend-ok",
+		"traefik: response body should come from the passthrough backend")
+}
+
 // This test reproduces a setup with these annotations.
 // The TLS cert should be the backend's one, not the ingress controller's one.
 //
