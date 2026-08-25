@@ -3,6 +3,7 @@ package e2e
 import (
 	"encoding/base64"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -121,9 +122,38 @@ func (s *WWWRedirectAuthSuite) TestWWWHostRedirectsUnauthenticated() {
 	require.NotNil(s.T(), nginxResp)
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
-	assert.GreaterOrEqual(s.T(), traefikResp.StatusCode, 300)
-	assert.Less(s.T(), traefikResp.StatusCode, 400)
+	assert.Equal(s.T(), http.StatusPermanentRedirect, nginxResp.StatusCode, "[nginx] www host must redirect")
+	assert.Equal(s.T(), http.StatusPermanentRedirect, traefikResp.StatusCode, "[traefik] www host must redirect")
 	assert.False(s.T(), backendReached(traefikResp), "www host must redirect, not serve the backend")
+
+	// The Location is built from the capture groups of the www redirect regex,
+	// so assert the target and not only the status code.
+	assertRedirectTarget(s.T(), nginxResp, wwwAuthNginxHost, "/", "nginx")
+	assertRedirectTarget(s.T(), traefikResp, wwwAuthTraefikHost, "/", "traefik")
+}
+
+// assertRedirectTarget checks that the response carries a Location header
+// pointing at wantHost and wantPath.
+func assertRedirectTarget(t *testing.T, resp *Response, wantHost, wantPath, controller string) {
+	t.Helper()
+
+	loc := resp.ResponseHeaders.Get("Location")
+	require.NotEmpty(t, loc, "[%s] missing Location header", controller)
+
+	// url.Parse rejects a non-numeric port, so a malformed port leaking from the
+	// request Host header into the Location fails here.
+	u, err := url.Parse(loc)
+	require.NoError(t, err, "[%s] invalid Location %q", controller, loc)
+
+	// ingress-nginx keeps the listening port in the Location (":80"), Traefik does not.
+	assert.Equal(t, wantHost, u.Hostname(), "[%s] unexpected redirect host in %q", controller, loc)
+
+	// ingress-nginx omits the trailing slash of the root path, Traefik keeps it.
+	path := u.Path
+	if path == "" {
+		path = "/"
+	}
+	assert.Equal(t, wantPath, path, "[%s] unexpected redirect path in %q", controller, loc)
 }
 
 // TestWWWHostNonNumericPortMatchesNginx sends the www host with a non-numeric
@@ -158,4 +188,15 @@ func (s *WWWRedirectAuthSuite) assertWWWHostMatchesNginx(traefikHostHeader strin
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode,
 		"status code mismatch for Host %q (nginx=%d traefik=%d)",
 		traefikHostHeader, nginxResp.StatusCode, traefikResp.StatusCode)
+
+	// Pin the expected status on both sides: the parity assert alone would also
+	// pass if neither ingress were routed at all (404 == 404).
+	assert.Equal(s.T(), http.StatusPermanentRedirect, nginxResp.StatusCode,
+		"[nginx] expected a redirect for Host %q", nginxHostHeader)
+	assert.Equal(s.T(), http.StatusPermanentRedirect, traefikResp.StatusCode,
+		"[traefik] expected a redirect for Host %q", traefikHostHeader)
+
+	// The malformed port must not leak into the redirect target either.
+	assertRedirectTarget(s.T(), nginxResp, wwwAuthNginxHost, "/admin/secret", "nginx")
+	assertRedirectTarget(s.T(), traefikResp, wwwAuthTraefikHost, "/admin/secret", "traefik")
 }
