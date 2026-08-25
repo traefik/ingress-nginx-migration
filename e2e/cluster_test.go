@@ -172,7 +172,10 @@ func (c *Cluster) CleanupSharedResources() {
 }
 
 // WaitForIngressReady waits until the ingress controller starts routing for the given host
-// by polling GET / until a non-404/non-502 response is received.
+// by polling GET / until a non-404/non-502 response is received. It fails the test when the
+// host never starts routing: otherwise a suite keeps asserting on responses coming from an
+// ingress that was never picked up, and comparisons such as 404 == 404 pass without proving
+// anything.
 func (c *Cluster) WaitForIngressReady(t *testing.T, host string, maxRetries int, delay time.Duration) {
 	t.Helper()
 
@@ -202,7 +205,8 @@ func (c *Cluster) WaitForIngressReady(t *testing.T, host string, maxRetries int,
 		}
 		time.Sleep(delay)
 	}
-	t.Logf("[%s] ingress for host %s not ready after %d retries", c.Name, host, maxRetries)
+
+	t.Fatalf("[%s] ingress for host %s not ready after %d retries", c.Name, host, maxRetries)
 }
 
 // MakeRequest makes an HTTP request to this cluster's ingress controller.
