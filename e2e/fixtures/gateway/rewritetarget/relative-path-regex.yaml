@@ -1,0 +1,35 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gateway-relative-path-regex-test-rewrite
+  namespace: default
+spec:
+  replacePathRegex:
+    regex: "^/original/(.*)"
+    replacement: "/newpath/$1"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gateway-relative-path-regex-test
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik
+  hostnames:
+    - relative-path-regex-test.gateway.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /original
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: gateway-relative-path-regex-test-rewrite
+      backendRefs:
+        - name: backend
+          port: 80
