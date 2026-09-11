@@ -15,7 +15,7 @@
   "unsupportedIngressCount": 2,
   "unsupportedIngressPercentage": 50,
   "unsupportedIngressAnnotations": {
-    "nginx.ingress.kubernetes.io/limit-connections": 2
+    "nginx.ingress.kubernetes.io/limit-rate": 2
   },
   "unknownIngressAnnotations": {
     "nginx.ingress.kubernetes.io/totally-made-up": 1
@@ -26,7 +26,7 @@
       "namespace": "prod",
       "ingressClassName": "nginx",
       "unsupportedAnnotations": [
-        "nginx.ingress.kubernetes.io/limit-connections"
+        "nginx.ingress.kubernetes.io/limit-rate"
       ]
     },
     {
@@ -34,7 +34,7 @@
       "namespace": "prod",
       "ingressClassName": "nginx",
       "unsupportedAnnotations": [
-        "nginx.ingress.kubernetes.io/limit-connections"
+        "nginx.ingress.kubernetes.io/limit-rate"
       ],
       "unknownAnnotations": [
         "nginx.ingress.kubernetes.io/totally-made-up"

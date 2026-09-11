@@ -23,12 +23,12 @@ Hash: `abc123def456`
 
 | Annotation | Count | Kind |
 |---|---|---|
-| `nginx.ingress.kubernetes.io/limit-connections` | 2 | unsupported |
+| `nginx.ingress.kubernetes.io/limit-rate` | 2 | unsupported |
 | `nginx.ingress.kubernetes.io/totally-made-up` | 1 | unknown |
 
 ## Ingresses needing manual work
 
 | Namespace | Name | Class | Annotations to fix |
 |---|---|---|---|
-| prod | api | nginx | nginx.ingress.kubernetes.io/limit-connections |
-| prod | web | nginx | nginx.ingress.kubernetes.io/limit-connections, nginx.ingress.kubernetes.io/totally-made-up |
+| prod | api | nginx | nginx.ingress.kubernetes.io/limit-rate |
+| prod | web | nginx | nginx.ingress.kubernetes.io/limit-rate, nginx.ingress.kubernetes.io/totally-made-up |

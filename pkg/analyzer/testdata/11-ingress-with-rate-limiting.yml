@@ -8,6 +8,8 @@ metadata:
     # Rate limiting annotations - Supported since Traefik v3.7
     nginx.ingress.kubernetes.io/limit-rpm: "60"
     nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    nginx.ingress.kubernetes.io/limit-connections: "5"
     # Connection proxy header - NOT supported by Traefik
     nginx.ingress.kubernetes.io/connection-proxy-header: "keep-alive"
 spec:
