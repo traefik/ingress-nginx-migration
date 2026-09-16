@@ -48,6 +48,10 @@ const (
 
 	sslPassthroughAllowedRange = "10.0.0.0/24"
 
+	sslPassthroughRedirectAuthIngressName = "ssl-passthrough-redirect-auth-test"
+	sslPassthroughRedirectAuthTraefikHost = sslPassthroughRedirectAuthIngressName + ".traefik.local"
+	sslPassthroughRedirectAuthNginxHost   = sslPassthroughRedirectAuthIngressName + ".nginx.local"
+
 	passthroughBackendName          = "passthrough-backend"
 	passthroughBackendConfigMapName = "passthrough-backend-config"
 	passthroughBackendTLSSecretName = "passthrough-backend-tls"
@@ -210,6 +214,36 @@ func (s *SSLPassthroughSuite) SetupSuite() {
 	})
 	require.NoError(s.T(), err, "deploy ssl-passthrough allow-list ingress to nginx cluster")
 
+	// 5. ssl-passthrough with force-ssl-redirect and auth. The redirect does not fire
+	// on a request already carrying X-Forwarded-Proto: https, which reaches the
+	// backend instead, so the auth annotations have to apply on that path too.
+	annotations = map[string]string{
+		"nginx.ingress.kubernetes.io/ssl-passthrough":    "true",
+		"nginx.ingress.kubernetes.io/force-ssl-redirect": "true",
+		"nginx.ingress.kubernetes.io/backend-protocol":   "HTTPS",
+		"nginx.ingress.kubernetes.io/auth-type":          "basic",
+		"nginx.ingress.kubernetes.io/auth-secret":        "ssl-passthrough-basic-auth",
+		"nginx.ingress.kubernetes.io/auth-realm":         sslPassthroughAuthRealm,
+	}
+
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:        sslPassthroughRedirectAuthIngressName,
+		Host:        sslPassthroughRedirectAuthTraefikHost,
+		Annotations: annotations,
+		ServiceName: passthroughBackendName,
+		ServicePort: 443,
+	})
+	require.NoError(s.T(), err, "deploy ssl-passthrough redirect auth ingress to traefik cluster")
+
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:        sslPassthroughRedirectAuthIngressName,
+		Host:        sslPassthroughRedirectAuthNginxHost,
+		Annotations: annotations,
+		ServiceName: passthroughBackendName,
+		ServicePort: 443,
+	})
+	require.NoError(s.T(), err, "deploy ssl-passthrough redirect auth ingress to nginx cluster")
+
 	// Deploy Gateway API equivalents (TLSRoute).
 	gwDir := filepath.Join(fixturesDir, "gateway", "sslpassthrough")
 	for _, f := range []string{"passthrough.yaml", "passthrough-cert.yaml"} {
@@ -231,6 +265,8 @@ func (s *SSLPassthroughSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(sslPassthroughAuthIngressName)
 	_ = s.traefik.DeleteIngress(sslPassthroughAllowListIngressName)
 	_ = s.nginx.DeleteIngress(sslPassthroughAllowListIngressName)
+	_ = s.traefik.DeleteIngress(sslPassthroughRedirectAuthIngressName)
+	_ = s.nginx.DeleteIngress(sslPassthroughRedirectAuthIngressName)
 
 	gwDir := filepath.Join(fixturesDir, "gateway", "sslpassthrough")
 	for _, f := range []string{"passthrough.yaml", "passthrough-cert.yaml"} {
@@ -532,6 +568,62 @@ func (s *SSLPassthroughSuite) TestSSLPassthroughAllowListRejectsForeignSource() 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 	assert.Equal(s.T(), http.StatusForbidden, traefikResp.StatusCode,
 		"ssl-passthrough must not make whitelist-source-range unenforced on the HTTP route")
+}
+
+// TestSSLPassthroughRedirectAuthRedirectsPlainHTTP verifies that the SSL redirect
+// still takes precedence over the auth annotations on an ssl-passthrough host.
+// Both controllers answer the redirect before evaluating credentials, nginx
+// returning it from the rewrite phase, which runs before the access phase where
+// auth_basic lives.
+func (s *SSLPassthroughSuite) TestSSLPassthroughRedirectAuthRedirectsPlainHTTP() {
+	traefikResp := s.traefik.MakeRequest(s.T(), sslPassthroughRedirectAuthTraefikHost, http.MethodGet, "/", nil, 10, 2*time.Second)
+	nginxResp := s.nginx.MakeRequest(s.T(), sslPassthroughRedirectAuthNginxHost, http.MethodGet, "/", nil, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusPermanentRedirect, traefikResp.StatusCode,
+		"the SSL redirect is evaluated before the auth annotations")
+}
+
+// TestSSLPassthroughRedirectAuthBypassedByXForwardedProto covers the path that
+// force-ssl-redirect leaves open: a request carrying X-Forwarded-Proto: https is
+// not redirected and reaches the backend, so the auth annotations must apply to
+// it. A Traefik release where the passthrough HTTP router carries no middleware
+// proxies the request unauthenticated instead.
+func (s *SSLPassthroughSuite) TestSSLPassthroughRedirectAuthBypassedByXForwardedProto() {
+	headers := map[string]string{"X-Forwarded-Proto": "https"}
+
+	traefikResp := s.traefik.MakeRequest(s.T(), sslPassthroughRedirectAuthTraefikHost, http.MethodGet, "/", headers, 10, 2*time.Second)
+	nginxResp := s.nginx.MakeRequest(s.T(), sslPassthroughRedirectAuthNginxHost, http.MethodGet, "/", headers, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusUnauthorized, traefikResp.StatusCode,
+		"bypassing the SSL redirect must not bypass the auth annotations")
+}
+
+// TestSSLPassthroughRedirectAuthWithCredentials verifies that the bypassed path
+// reaches the backend once the credentials are valid, backend-protocol HTTPS
+// making the backend answer the request.
+func (s *SSLPassthroughSuite) TestSSLPassthroughRedirectAuthWithCredentials() {
+	headers := basicAuthHeader(sslPassthroughAuthUser, sslPassthroughAuthPass)
+	headers["X-Forwarded-Proto"] = "https"
+
+	traefikResp := s.traefik.MakeRequest(s.T(), sslPassthroughRedirectAuthTraefikHost, http.MethodGet, "/", headers, 10, 2*time.Second)
+	nginxResp := s.nginx.MakeRequest(s.T(), sslPassthroughRedirectAuthNginxHost, http.MethodGet, "/", headers, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode,
+		"valid credentials reach the backend on the bypassed path")
+	assert.Contains(s.T(), traefikResp.Body, "passthrough-backend-ok",
+		"traefik: response body should come from the passthrough backend")
 }
 
 // TestSSLPassthroughRedirectBypassedByXForwardedProto verifies the behavior when
