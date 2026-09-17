@@ -13,6 +13,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,18 @@ const (
 	authTLSPassCertIngressName = "mtls-pass-cert-test"
 	authTLSPassCertTraefikHost = authTLSPassCertIngressName + ".traefik.local"
 	authTLSPassCertNginxHost   = authTLSPassCertIngressName + ".nginx.local"
+
+	// Pass the certificate to the upstream, with the HTTPS redirection disabled, so that the
+	// plaintext route serves the backend instead of redirecting to it.
+	authTLSPassCertNoRedirectIngressName = "mtls-pass-cert-no-redirect-test"
+	authTLSPassCertNoRedirectTraefikHost = authTLSPassCertNoRedirectIngressName + ".traefik.local"
+	authTLSPassCertNoRedirectNginxHost   = authTLSPassCertNoRedirectIngressName + ".nginx.local"
+
+	// Pass the certificate to the upstream, with an optional client certificate, so that a TLS
+	// request carrying none of it still reaches the backend.
+	authTLSPassCertOptionalIngressName = "mtls-pass-cert-optional-test"
+	authTLSPassCertOptionalTraefikHost = authTLSPassCertOptionalIngressName + ".traefik.local"
+	authTLSPassCertOptionalNginxHost   = authTLSPassCertOptionalIngressName + ".nginx.local"
 
 	authTLSCACertSecretName    = "mtls-ca-cert"
 	authTLSServerTLSSecretName = "mtls-server-tls"
@@ -98,6 +111,8 @@ func (s *AuthTLSSuite) SetupSuite() {
 		authTLSOptionalTraefikHost, authTLSOptionalNginxHost,
 		authTLSOffTraefikHost, authTLSOffNginxHost,
 		authTLSPassCertTraefikHost, authTLSPassCertNginxHost,
+		authTLSPassCertNoRedirectTraefikHost, authTLSPassCertNoRedirectNginxHost,
+		authTLSPassCertOptionalTraefikHost, authTLSPassCertOptionalNginxHost,
 	)
 	require.NoError(s.T(), err, "generate server certificate")
 
@@ -143,6 +158,22 @@ func (s *AuthTLSSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream": "true",
 	})
 
+	// 5. auth-tls-pass-certificate-to-upstream="true" with ssl-redirect="false",
+	// where the plaintext route reaches the backend.
+	s.deployAuthTLSIngress(authTLSPassCertNoRedirectIngressName, authTLSPassCertNoRedirectTraefikHost, authTLSPassCertNoRedirectNginxHost, map[string]string{
+		"nginx.ingress.kubernetes.io/auth-tls-secret":                       testNamespace + "/" + authTLSCACertSecretName,
+		"nginx.ingress.kubernetes.io/auth-tls-verify-client":                "on",
+		"nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream": "true",
+		"nginx.ingress.kubernetes.io/ssl-redirect":                          "false",
+	})
+
+	// 6. auth-tls-pass-certificate-to-upstream="true" with verify-client="optional".
+	s.deployAuthTLSIngress(authTLSPassCertOptionalIngressName, authTLSPassCertOptionalTraefikHost, authTLSPassCertOptionalNginxHost, map[string]string{
+		"nginx.ingress.kubernetes.io/auth-tls-secret":                       testNamespace + "/" + authTLSCACertSecretName,
+		"nginx.ingress.kubernetes.io/auth-tls-verify-client":                "optional",
+		"nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream": "true",
+	})
+
 	// Wait for all ingresses to be ready.
 	s.traefik.WaitForIngressReady(s.T(), authTLSRequiredTraefikHost, 30, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), authTLSRequiredNginxHost, 30, 1*time.Second)
@@ -152,6 +183,10 @@ func (s *AuthTLSSuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), authTLSOffNginxHost, 30, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), authTLSPassCertTraefikHost, 30, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), authTLSPassCertNginxHost, 30, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), authTLSPassCertNoRedirectTraefikHost, 30, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), authTLSPassCertNoRedirectNginxHost, 30, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), authTLSPassCertOptionalTraefikHost, 30, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), authTLSPassCertOptionalNginxHost, 30, 1*time.Second)
 }
 
 func (s *AuthTLSSuite) TearDownSuite() {
@@ -163,6 +198,10 @@ func (s *AuthTLSSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(authTLSOffIngressName)
 	_ = s.traefik.DeleteIngress(authTLSPassCertIngressName)
 	_ = s.nginx.DeleteIngress(authTLSPassCertIngressName)
+	_ = s.traefik.DeleteIngress(authTLSPassCertNoRedirectIngressName)
+	_ = s.nginx.DeleteIngress(authTLSPassCertNoRedirectIngressName)
+	_ = s.traefik.DeleteIngress(authTLSPassCertOptionalIngressName)
+	_ = s.nginx.DeleteIngress(authTLSPassCertOptionalIngressName)
 	_ = s.traefik.DeleteSecret(authTLSCACertSecretName)
 	_ = s.nginx.DeleteSecret(authTLSCACertSecretName)
 	_ = s.traefik.DeleteSecret(authTLSServerTLSSecretName)
@@ -539,4 +578,196 @@ func (s *AuthTLSSuite) TestPassCertToUpstream() {
 	}
 	assert.True(s.T(), nginxHasCert,
 		"nginx: expected client certificate header in upstream request, body: %s", nginxResp.Body)
+}
+
+// sslClientHeaders holds the request header names the pass-certificate-to-upstream feature owns.
+// Nginx builds them from the $ssl_client_* variables, and Traefik reproduces them.
+var sslClientHeaders = []string{
+	"Ssl-Client-Verify",
+	"Ssl-Client-Cert",
+	"Ssl-Client-Subject-Dn",
+	"Ssl-Client-Issuer-Dn",
+}
+
+// forgedIdentity is the client certificate identity a request claims when it sends the
+// Ssl-Client-* headers itself.
+const forgedIdentity = "CN=forged-admin,O=forged"
+
+// forgedSSLClientHeaders returns the four headers spelled canonically, claiming a verified identity.
+func forgedSSLClientHeaders() map[string]string {
+	return map[string]string{
+		"Ssl-Client-Verify":     "SUCCESS",
+		"Ssl-Client-Subject-Dn": forgedIdentity,
+		"Ssl-Client-Issuer-Dn":  "CN=forged-ca",
+		"Ssl-Client-Cert":       "FORGED-CERTIFICATE",
+	}
+}
+
+// forgedAliasingSSLClientHeaders returns the same claim, spelled with underscores and dots instead
+// of dashes. A backend deriving a variable name from the header name reads those spellings as the
+// canonical names, so they carry the same claim.
+func forgedAliasingSSLClientHeaders() map[string]string {
+	return map[string]string{
+		"Ssl_Client_Verify":     "SUCCESS",
+		"Ssl_Client_Subject_Dn": forgedIdentity,
+		"Ssl.Client.Issuer.Dn":  "CN=forged-ca",
+		"Ssl.Client.Cert":       "FORGED-CERTIFICATE",
+	}
+}
+
+// normalizeSSLHeaderName upper-cases the letters of name and replaces every other byte with a dash,
+// which is the form a backend deriving variable names from the header names collapses a name into.
+// It is written here rather than taken from the proxy, so that these assertions do not rely on the
+// implementation they check.
+func normalizeSSLHeaderName(name string) string {
+	var b strings.Builder
+	for i := range len(name) {
+		c := name[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+			b.WriteByte(c - ('a' - 'A'))
+		case c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			b.WriteByte(c)
+		default:
+			b.WriteByte('-')
+		}
+	}
+
+	return b.String()
+}
+
+// sslClientHeadersReaching returns the upstream header names that a backend reads as one of the
+// Ssl-Client-* fields, whichever spelling they arrived with, with their values.
+func sslClientHeadersReaching(upstream map[string]string) map[string]string {
+	managed := make(map[string]struct{}, len(sslClientHeaders))
+	for _, name := range sslClientHeaders {
+		managed[normalizeSSLHeaderName(name)] = struct{}{}
+	}
+
+	reaching := make(map[string]string)
+	for name, value := range upstream {
+		if _, ok := managed[normalizeSSLHeaderName(name)]; ok {
+			reaching[name] = value
+		}
+	}
+
+	return reaching
+}
+
+// TestPassCertToUpstreamPlaintextSetsNoCertHeaders checks the plaintext route of an Ingress that
+// disables the HTTPS redirection. Nginx builds these headers from variables that are empty outside
+// of a TLS connection, and omits a header whose value is empty, so the backend receives none of
+// them: not even Ssl-Client-Verify, which would otherwise report that the client presented no
+// certificate over a connection that was never TLS.
+func (s *AuthTLSSuite) TestPassCertToUpstreamPlaintextSetsNoCertHeaders() {
+	traefikResp := s.traefik.MakeRequest(s.T(), authTLSPassCertNoRedirectTraefikHost, http.MethodGet, "/", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), traefikResp)
+	nginxResp := s.nginx.MakeRequest(s.T(), authTLSPassCertNoRedirectNginxHost, http.MethodGet, "/", nil, 5, 1*time.Second)
+	require.NotNil(s.T(), nginxResp)
+
+	require.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "traefik: body: %s", traefikResp.Body)
+	require.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "nginx: body: %s", nginxResp.Body)
+
+	assert.Empty(s.T(), sslClientHeadersReaching(nginxResp.RequestHeaders), "nginx")
+	assert.Empty(s.T(), sslClientHeadersReaching(traefikResp.RequestHeaders), "traefik")
+}
+
+// TestPassCertToUpstreamPlaintextDropsForgedCertHeaders checks that a client cannot supply the
+// Ssl-Client-* headers itself on that plaintext route, which would have the backend authorize a
+// certificate identity that was never presented.
+func (s *AuthTLSSuite) TestPassCertToUpstreamPlaintextDropsForgedCertHeaders() {
+	forged := forgedSSLClientHeaders()
+
+	traefikResp := s.traefik.MakeRequest(s.T(), authTLSPassCertNoRedirectTraefikHost, http.MethodGet, "/", forged, 5, 1*time.Second)
+	require.NotNil(s.T(), traefikResp)
+	nginxResp := s.nginx.MakeRequest(s.T(), authTLSPassCertNoRedirectNginxHost, http.MethodGet, "/", forged, 5, 1*time.Second)
+	require.NotNil(s.T(), nginxResp)
+
+	require.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "traefik: body: %s", traefikResp.Body)
+	require.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "nginx: body: %s", nginxResp.Body)
+
+	assert.Empty(s.T(), sslClientHeadersReaching(nginxResp.RequestHeaders), "nginx")
+	assert.Empty(s.T(), sslClientHeadersReaching(traefikResp.RequestHeaders), "traefik")
+	assert.NotContains(s.T(), traefikResp.Body, forgedIdentity, "traefik: the forged identity reached the backend")
+}
+
+// TestPassCertToUpstreamPlaintextDropsForgedAliasingCertHeaders sends the same claim spelled so that
+// it aliases the canonical names. Nginx drops a request header whose name contains an underscore or
+// a dot before it reaches a backend, so the two proxies end up agreeing here through different
+// means, and the comparison is on what the backend receives rather than on how it was achieved.
+func (s *AuthTLSSuite) TestPassCertToUpstreamPlaintextDropsForgedAliasingCertHeaders() {
+	forged := forgedAliasingSSLClientHeaders()
+	// A name that merely carries an aliasing character is not one of ours: Traefik forwards it,
+	// which also shows that these spellings do travel to the proxy rather than being dropped by the
+	// client, and that the assertions above are not vacuous.
+	forged["X_Not_Managed"] = "kept"
+
+	traefikResp := s.traefik.MakeRequest(s.T(), authTLSPassCertNoRedirectTraefikHost, http.MethodGet, "/", forged, 5, 1*time.Second)
+	require.NotNil(s.T(), traefikResp)
+	nginxResp := s.nginx.MakeRequest(s.T(), authTLSPassCertNoRedirectNginxHost, http.MethodGet, "/", forged, 5, 1*time.Second)
+	require.NotNil(s.T(), nginxResp)
+
+	require.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "traefik: body: %s", traefikResp.Body)
+	require.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "nginx: body: %s", nginxResp.Body)
+
+	assert.Empty(s.T(), sslClientHeadersReaching(nginxResp.RequestHeaders), "nginx")
+	assert.Empty(s.T(), sslClientHeadersReaching(traefikResp.RequestHeaders), "traefik")
+	assert.NotContains(s.T(), traefikResp.Body, forgedIdentity, "traefik: the forged identity reached the backend")
+	assert.Contains(s.T(), traefikResp.Body, "kept", "traefik: an unmanaged aliasing name should be forwarded")
+}
+
+// TestPassCertToUpstreamOverTLSDropsForgedCertHeaders checks the HTTPS route, where the proxy sets
+// these headers from the certificate the client presented: a spelling the client supplied must not
+// survive beside the value the proxy wrote.
+func (s *AuthTLSSuite) TestPassCertToUpstreamOverTLSDropsForgedCertHeaders() {
+	forged := forgedSSLClientHeaders()
+	for name, value := range forgedAliasingSSLClientHeaders() {
+		forged[name] = value
+	}
+
+	traefikResp := s.traefik.MakeTLSRequest(s.T(), authTLSPassCertTraefikHost, http.MethodGet, "/", forged, &s.certs.clientCert, 5, 1*time.Second)
+	require.NotNil(s.T(), traefikResp)
+	nginxResp := s.nginx.MakeTLSRequest(s.T(), authTLSPassCertNginxHost, http.MethodGet, "/", forged, &s.certs.clientCert, 5, 1*time.Second)
+	require.NotNil(s.T(), nginxResp)
+
+	require.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "traefik: body: %s", traefikResp.Body)
+	require.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "nginx: body: %s", nginxResp.Body)
+
+	// Nginx and Traefik do not serialize a distinguished name identically, so the assertion is on the
+	// common name of the certificate that was actually presented.
+	require.NotNil(s.T(), s.certs.clientCert.Leaf)
+	expectedCN := "CN=" + s.certs.clientCert.Leaf.Subject.CommonName
+
+	for _, resp := range map[string]*Response{"traefik": traefikResp, "nginx": nginxResp} {
+		reaching := sslClientHeadersReaching(resp.RequestHeaders)
+		assert.Equal(s.T(), "SUCCESS", reaching["Ssl-Client-Verify"])
+		assert.Contains(s.T(), reaching["Ssl-Client-Subject-Dn"], expectedCN)
+
+		// Only the four canonical names, each holding the proxy's own value.
+		assert.Len(s.T(), reaching, len(sslClientHeaders))
+		for name, value := range reaching {
+			assert.NotEqual(s.T(), forgedIdentity, value, "%s carries the forged identity", name)
+			assert.NotEqual(s.T(), "FORGED-CERTIFICATE", value, "%s carries the forged certificate", name)
+		}
+	}
+}
+
+// TestPassCertToUpstreamTLSWithoutClientCertSetsNone checks a TLS request presenting no certificate,
+// which an optional verify-client lets through. Nginx reports NONE there, unlike on a plaintext
+// request where it sends nothing at all.
+func (s *AuthTLSSuite) TestPassCertToUpstreamTLSWithoutClientCertSetsNone() {
+	forged := forgedSSLClientHeaders()
+
+	traefikResp := s.traefik.MakeTLSRequest(s.T(), authTLSPassCertOptionalTraefikHost, http.MethodGet, "/", forged, nil, 5, 1*time.Second)
+	require.NotNil(s.T(), traefikResp)
+	nginxResp := s.nginx.MakeTLSRequest(s.T(), authTLSPassCertOptionalNginxHost, http.MethodGet, "/", forged, nil, 5, 1*time.Second)
+	require.NotNil(s.T(), nginxResp)
+
+	require.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "traefik: body: %s", traefikResp.Body)
+	require.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "nginx: body: %s", nginxResp.Body)
+
+	for _, resp := range map[string]*Response{"traefik": traefikResp, "nginx": nginxResp} {
+		reaching := sslClientHeadersReaching(resp.RequestHeaders)
+		assert.Equal(s.T(), map[string]string{"Ssl-Client-Verify": "NONE"}, reaching)
+	}
 }
