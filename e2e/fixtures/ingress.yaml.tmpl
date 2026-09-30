@@ -23,11 +23,11 @@ spec:
 {{- if .TLSSecret }}
   tls:
   - hosts:
-    - {{ .Host }}
+    - {{ .Host | quote }}
     secretName: {{ .TLSSecret }}
 {{- end }}
   rules:
-  - host: {{ .Host }}
+  - host: {{ .Host | quote }}
     http:
       paths:
       - path: {{ .Path }}
