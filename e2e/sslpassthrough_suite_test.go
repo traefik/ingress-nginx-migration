@@ -52,6 +52,32 @@ const (
 	sslPassthroughRedirectAuthTraefikHost = sslPassthroughRedirectAuthIngressName + ".traefik.local"
 	sslPassthroughRedirectAuthNginxHost   = sslPassthroughRedirectAuthIngressName + ".nginx.local"
 
+	sslPassthroughDefaultBackendIngressName = "ssl-passthrough-default-backend-test"
+	sslPassthroughDefaultBackendTraefikHost = sslPassthroughDefaultBackendIngressName + ".traefik.local"
+	sslPassthroughDefaultBackendNginxHost   = sslPassthroughDefaultBackendIngressName + ".nginx.local"
+
+	// Two ingresses sharing a host, only one of them carrying ssl-passthrough.
+	sslPassthroughSharedHostIngressName      = "ssl-passthrough-shared-host-test"
+	sslPassthroughSharedHostPlainIngressName = "ssl-passthrough-shared-host-plain-test"
+	sslPassthroughSharedHostTraefikHost      = sslPassthroughSharedHostIngressName + ".traefik.local"
+	sslPassthroughSharedHostNginxHost        = sslPassthroughSharedHostIngressName + ".nginx.local"
+
+	// Same, the root path being declared by the ingress without ssl-passthrough.
+	sslPassthroughForeignRootIngressName      = "ssl-passthrough-foreign-root-test"
+	sslPassthroughForeignRootPlainIngressName = "ssl-passthrough-foreign-root-plain-test"
+	sslPassthroughForeignRootTraefikHost      = sslPassthroughForeignRootIngressName + ".traefik.local"
+	sslPassthroughForeignRootNginxHost        = sslPassthroughForeignRootIngressName + ".nginx.local"
+
+	sslPassthroughAliasIngressName = "ssl-passthrough-alias-test"
+	sslPassthroughAliasTraefikHost = sslPassthroughAliasIngressName + ".traefik.local"
+	sslPassthroughAliasNginxHost   = sslPassthroughAliasIngressName + ".nginx.local"
+	sslPassthroughAliasTraefikName = "alias-" + sslPassthroughAliasTraefikHost
+	sslPassthroughAliasNginxName   = "alias-" + sslPassthroughAliasNginxHost
+
+	sslPassthroughWildcardIngressName = "ssl-passthrough-wildcard-test"
+	sslPassthroughWildcardTraefikHost = sslPassthroughWildcardIngressName + ".traefik.local"
+	sslPassthroughWildcardNginxHost   = sslPassthroughWildcardIngressName + ".nginx.local"
+
 	passthroughBackendName          = "passthrough-backend"
 	passthroughBackendConfigMapName = "passthrough-backend-config"
 	passthroughBackendTLSSecretName = "passthrough-backend-tls"
@@ -244,6 +270,115 @@ func (s *SSLPassthroughSuite) SetupSuite() {
 	})
 	require.NoError(s.T(), err, "deploy ssl-passthrough redirect auth ingress to nginx cluster")
 
+	// 6. ssl-passthrough on an ingress also declaring spec.defaultBackend.
+	// ingress-nginx uses the defaultBackend as the fallback location of the host
+	// server block, which must not make the controller terminate TLS for that host.
+	annotations = map[string]string{
+		"nginx.ingress.kubernetes.io/ssl-passthrough": "true",
+	}
+	defaultBackend := &ingressDefaultBackend{ServiceName: "backend", ServicePort: 80}
+
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:           sslPassthroughDefaultBackendIngressName,
+		Host:           sslPassthroughDefaultBackendTraefikHost,
+		Annotations:    annotations,
+		DefaultBackend: defaultBackend,
+		ServiceName:    passthroughBackendName,
+		ServicePort:    443,
+	})
+	require.NoError(s.T(), err, "deploy ssl-passthrough default backend ingress to traefik cluster")
+
+	err = s.nginx.DeployIngressWith(ingressTemplateData{
+		Name:           sslPassthroughDefaultBackendIngressName,
+		Host:           sslPassthroughDefaultBackendNginxHost,
+		Annotations:    annotations,
+		DefaultBackend: defaultBackend,
+		ServiceName:    passthroughBackendName,
+		ServicePort:    443,
+	})
+	require.NoError(s.T(), err, "deploy ssl-passthrough default backend ingress to nginx cluster")
+
+	// 7. ssl-passthrough host also served by an ingress without the annotation.
+	// ingress-nginx enables passthrough on the whole host as soon as one of its
+	// ingresses carries the annotation.
+	for _, d := range []struct {
+		cluster *Cluster
+		host    string
+	}{{s.traefik, sslPassthroughSharedHostTraefikHost}, {s.nginx, sslPassthroughSharedHostNginxHost}} {
+		err = d.cluster.DeployIngressWith(ingressTemplateData{
+			Name:        sslPassthroughSharedHostIngressName,
+			Host:        d.host,
+			Annotations: map[string]string{"nginx.ingress.kubernetes.io/ssl-passthrough": "true"},
+			ServiceName: passthroughBackendName,
+			ServicePort: 443,
+		})
+		require.NoError(s.T(), err, "deploy ssl-passthrough shared host ingress to %s cluster", d.cluster.Name)
+
+		err = d.cluster.DeployIngressWith(ingressTemplateData{
+			Name: sslPassthroughSharedHostPlainIngressName,
+			Host: d.host,
+			Path: "/api",
+		})
+		require.NoError(s.T(), err, "deploy plain shared host ingress to %s cluster", d.cluster.Name)
+	}
+
+	// 8. ssl-passthrough ingress without a root path, the root path of the host
+	// being declared by an ingress without the annotation.
+	// ingress-nginx passes the connection through to the backend of that root path.
+	for _, d := range []struct {
+		cluster *Cluster
+		host    string
+	}{{s.traefik, sslPassthroughForeignRootTraefikHost}, {s.nginx, sslPassthroughForeignRootNginxHost}} {
+		err = d.cluster.DeployIngressWith(ingressTemplateData{
+			Name:        sslPassthroughForeignRootIngressName,
+			Host:        d.host,
+			Path:        "/foo",
+			Annotations: map[string]string{"nginx.ingress.kubernetes.io/ssl-passthrough": "true"},
+		})
+		require.NoError(s.T(), err, "deploy ssl-passthrough foreign root ingress to %s cluster", d.cluster.Name)
+
+		err = d.cluster.DeployIngressWith(ingressTemplateData{
+			Name:        sslPassthroughForeignRootPlainIngressName,
+			Host:        d.host,
+			ServiceName: passthroughBackendName,
+			ServicePort: 443,
+		})
+		require.NoError(s.T(), err, "deploy plain foreign root ingress to %s cluster", d.cluster.Name)
+	}
+
+	// 9. ssl-passthrough with a server-alias, and 10. ssl-passthrough on a wildcard host.
+	// ingress-nginx matches the SNI against the exact host of the server only.
+	for _, d := range []struct {
+		cluster  *Cluster
+		host     string
+		alias    string
+		wildcard string
+	}{
+		{s.traefik, sslPassthroughAliasTraefikHost, sslPassthroughAliasTraefikName, sslPassthroughWildcardTraefikHost},
+		{s.nginx, sslPassthroughAliasNginxHost, sslPassthroughAliasNginxName, sslPassthroughWildcardNginxHost},
+	} {
+		err = d.cluster.DeployIngressWith(ingressTemplateData{
+			Name: sslPassthroughAliasIngressName,
+			Host: d.host,
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/ssl-passthrough": "true",
+				"nginx.ingress.kubernetes.io/server-alias":    d.alias,
+			},
+			ServiceName: passthroughBackendName,
+			ServicePort: 443,
+		})
+		require.NoError(s.T(), err, "deploy ssl-passthrough alias ingress to %s cluster", d.cluster.Name)
+
+		err = d.cluster.DeployIngressWith(ingressTemplateData{
+			Name:        sslPassthroughWildcardIngressName,
+			Host:        "*." + d.wildcard,
+			Annotations: map[string]string{"nginx.ingress.kubernetes.io/ssl-passthrough": "true"},
+			ServiceName: passthroughBackendName,
+			ServicePort: 443,
+		})
+		require.NoError(s.T(), err, "deploy ssl-passthrough wildcard ingress to %s cluster", d.cluster.Name)
+	}
+
 	// Deploy Gateway API equivalents (TLSRoute).
 	gwDir := filepath.Join(fixturesDir, "gateway", "sslpassthrough")
 	for _, f := range []string{"passthrough.yaml", "passthrough-cert.yaml"} {
@@ -267,6 +402,19 @@ func (s *SSLPassthroughSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(sslPassthroughAllowListIngressName)
 	_ = s.traefik.DeleteIngress(sslPassthroughRedirectAuthIngressName)
 	_ = s.nginx.DeleteIngress(sslPassthroughRedirectAuthIngressName)
+	_ = s.traefik.DeleteIngress(sslPassthroughDefaultBackendIngressName)
+	_ = s.nginx.DeleteIngress(sslPassthroughDefaultBackendIngressName)
+	for _, name := range []string{
+		sslPassthroughSharedHostIngressName,
+		sslPassthroughSharedHostPlainIngressName,
+		sslPassthroughForeignRootIngressName,
+		sslPassthroughForeignRootPlainIngressName,
+		sslPassthroughAliasIngressName,
+		sslPassthroughWildcardIngressName,
+	} {
+		_ = s.traefik.DeleteIngress(name)
+		_ = s.nginx.DeleteIngress(name)
+	}
 
 	gwDir := filepath.Join(fixturesDir, "gateway", "sslpassthrough")
 	for _, f := range []string{"passthrough.yaml", "passthrough-cert.yaml"} {
@@ -332,7 +480,14 @@ func (s *SSLPassthroughSuite) deployPassthroughBackend() {
 func makePassthroughTLSRequest(t *testing.T, hostPort, sniHost string, maxRetries int, delay time.Duration) (resp *Response, peerCN string) {
 	t.Helper()
 
-	url := fmt.Sprintf("https://%s/", hostPort)
+	return makePassthroughTLSRequestWithPath(t, hostPort, sniHost, "/", maxRetries, delay)
+}
+
+// makePassthroughTLSRequestWithPath is makePassthroughTLSRequest for the given request path.
+func makePassthroughTLSRequestWithPath(t *testing.T, hostPort, sniHost, path string, maxRetries int, delay time.Duration) (resp *Response, peerCN string) {
+	t.Helper()
+
+	url := fmt.Sprintf("https://%s%s", hostPort, path)
 
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
@@ -646,6 +801,108 @@ func (s *SSLPassthroughSuite) TestSSLPassthroughRedirectBypassedByXForwardedProt
 		"X-Forwarded-Proto https bypasses the redirect and reaches the backend")
 	assert.Contains(s.T(), traefikResp.Body, "passthrough-backend-ok",
 		"traefik: response body should come from the passthrough backend")
+}
+
+// TestSSLPassthroughWithDefaultBackend verifies that declaring spec.defaultBackend
+// on an ssl-passthrough Ingress does not make the controller terminate TLS for
+// the host. A Traefik release creating an HTTPS router for the per-host default
+// backend serves its own certificate there, that router taking precedence over
+// the passthrough TCP router.
+func (s *SSLPassthroughSuite) TestSSLPassthroughWithDefaultBackend() {
+	traefikResp, traefikCN := makePassthroughTLSRequest(s.T(), s.traefikHTTPS, sslPassthroughDefaultBackendTraefikHost, 10, 2*time.Second)
+	nginxResp, nginxCN := makePassthroughTLSRequest(s.T(), s.nginxHTTPS, sslPassthroughDefaultBackendNginxHost, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), passthroughBackendCN, traefikCN,
+		"traefik: TLS certificate CN should be from the backend (passthrough)")
+	assert.Equal(s.T(), passthroughBackendCN, nginxCN,
+		"nginx: TLS certificate CN should be from the backend (passthrough)")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Contains(s.T(), traefikResp.Body, "passthrough-backend-ok",
+		"traefik: response body should come from the passthrough backend")
+	assert.Contains(s.T(), nginxResp.Body, "passthrough-backend-ok",
+		"nginx: response body should come from the passthrough backend")
+}
+
+// TestSSLPassthroughHostSharedWithPlainIngress verifies that ssl-passthrough
+// applies to the whole host when another ingress without the annotation serves
+// a path of that host.
+// ingress-nginx passes every TLS connection for the host through, the /api path
+// of the other ingress included.
+func (s *SSLPassthroughSuite) TestSSLPassthroughHostSharedWithPlainIngress() {
+	traefikResp, traefikCN := makePassthroughTLSRequestWithPath(s.T(), s.traefikHTTPS, sslPassthroughSharedHostTraefikHost, "/api", 10, 2*time.Second)
+	nginxResp, nginxCN := makePassthroughTLSRequestWithPath(s.T(), s.nginxHTTPS, sslPassthroughSharedHostNginxHost, "/api", 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), passthroughBackendCN, nginxCN,
+		"nginx: TLS certificate CN should be from the backend (passthrough)")
+	assert.Equal(s.T(), passthroughBackendCN, traefikCN,
+		"traefik: TLS certificate CN should be from the backend (passthrough)")
+	assert.Contains(s.T(), traefikResp.Body, "passthrough-backend-ok",
+		"traefik: response body should come from the passthrough backend")
+}
+
+// TestSSLPassthroughRootPathFromPlainIngress verifies the passthrough backend
+// when the ssl-passthrough ingress has no root path, the root path of the host
+// being declared by another ingress without the annotation.
+// ingress-nginx passes the connection through to the backend of that root path.
+func (s *SSLPassthroughSuite) TestSSLPassthroughRootPathFromPlainIngress() {
+	traefikResp, traefikCN := makePassthroughTLSRequest(s.T(), s.traefikHTTPS, sslPassthroughForeignRootTraefikHost, 10, 2*time.Second)
+	nginxResp, nginxCN := makePassthroughTLSRequest(s.T(), s.nginxHTTPS, sslPassthroughForeignRootNginxHost, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), passthroughBackendCN, nginxCN,
+		"nginx: TLS certificate CN should be from the backend (passthrough)")
+	assert.Equal(s.T(), passthroughBackendCN, traefikCN,
+		"traefik: TLS certificate CN should be from the backend (passthrough)")
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+}
+
+// TestSSLPassthroughServerAlias verifies that ssl-passthrough does not apply to
+// the server-alias of the host.
+// ingress-nginx matches the SNI against the host only, so it terminates TLS for
+// the alias and proxies the request in plain HTTP to the TLS backend, which
+// rejects it with a 400.
+func (s *SSLPassthroughSuite) TestSSLPassthroughServerAlias() {
+	traefikResp, traefikCN := makePassthroughTLSRequest(s.T(), s.traefikHTTPS, sslPassthroughAliasTraefikName, 10, 2*time.Second)
+	nginxResp, nginxCN := makePassthroughTLSRequest(s.T(), s.nginxHTTPS, sslPassthroughAliasNginxName, 10, 2*time.Second)
+
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+	assert.NotEqual(s.T(), passthroughBackendCN, nginxCN,
+		"nginx: TLS should be terminated by the controller for the alias")
+	assert.Equal(s.T(), http.StatusBadRequest, nginxResp.StatusCode,
+		"nginx: plain HTTP proxied to the TLS backend is rejected by the backend")
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	assert.NotEqual(s.T(), passthroughBackendCN, traefikCN,
+		"traefik: TLS should be terminated by the controller for the alias")
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+}
+
+// TestSSLPassthroughWildcardHost verifies that ssl-passthrough does not apply to
+// a wildcard host.
+// ingress-nginx matches the SNI against the exact host of the server, which
+// never equals a wildcard, so it terminates TLS and proxies the request in plain
+// HTTP to the TLS backend, which rejects it with a 400.
+func (s *SSLPassthroughSuite) TestSSLPassthroughWildcardHost() {
+	traefikResp, traefikCN := makePassthroughTLSRequest(s.T(), s.traefikHTTPS, "foo."+sslPassthroughWildcardTraefikHost, 10, 2*time.Second)
+	nginxResp, nginxCN := makePassthroughTLSRequest(s.T(), s.nginxHTTPS, "foo."+sslPassthroughWildcardNginxHost, 10, 2*time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.NotEqual(s.T(), passthroughBackendCN, nginxCN,
+		"nginx: TLS should be terminated by the controller for a wildcard host")
+	assert.NotEqual(s.T(), passthroughBackendCN, traefikCN,
+		"traefik: TLS should be terminated by the controller for a wildcard host")
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
 }
 
 // This test reproduces a setup with these annotations.
