@@ -33,7 +33,7 @@ func mixedReport() analyzer.Report {
 		UnsupportedIngressCount:      2,
 		UnsupportedIngressPercentage: 50.0,
 		UnsupportedIngressAnnotations: map[string]int{
-			"nginx.ingress.kubernetes.io/limit-connections": 2,
+			"nginx.ingress.kubernetes.io/limit-rate": 2,
 		},
 		UnknownIngressAnnotations: map[string]int{
 			"nginx.ingress.kubernetes.io/totally-made-up": 1,
@@ -43,13 +43,13 @@ func mixedReport() analyzer.Report {
 				Name:                   "api",
 				Namespace:              "prod",
 				IngressClassName:       "nginx",
-				UnsupportedAnnotations: []string{"nginx.ingress.kubernetes.io/limit-connections"},
+				UnsupportedAnnotations: []string{"nginx.ingress.kubernetes.io/limit-rate"},
 			},
 			{
 				Name:                   "web",
 				Namespace:              "prod",
 				IngressClassName:       "nginx",
-				UnsupportedAnnotations: []string{"nginx.ingress.kubernetes.io/limit-connections"},
+				UnsupportedAnnotations: []string{"nginx.ingress.kubernetes.io/limit-rate"},
 				UnknownAnnotations:     []string{"nginx.ingress.kubernetes.io/totally-made-up"},
 			},
 		},

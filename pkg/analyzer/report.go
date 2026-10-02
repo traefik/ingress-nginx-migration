@@ -21,35 +21,50 @@ const (
 )
 
 // knownUnsupportedAnnotations is the set of NGINX ingress controller annotations
-// that are explicitly documented as unsupported by Traefik v3.7.
+// that Traefik v3.7 does not honor: either explicitly documented as unsupported,
+// or parsed nowhere and silently ignored by the ingress-nginx provider.
 // An annotation in this set is known to the tool but has no Traefik equivalent.
 // Annotations that are in neither this set nor supportedAnnotations are "unknown"
 // to the tool and may be typos, custom extensions, or annotations not yet cataloged.
 var knownUnsupportedAnnotations = map[string]struct{}{
 	// Authentication.
-	"nginx.ingress.kubernetes.io/auth-tls-error-page":       {},
-	"nginx.ingress.kubernetes.io/auth-tls-match-cn":         {},
-	"nginx.ingress.kubernetes.io/auth-cache-key":            {},
-	"nginx.ingress.kubernetes.io/auth-cache-duration":       {},
-	"nginx.ingress.kubernetes.io/auth-keepalive":            {},
-	"nginx.ingress.kubernetes.io/auth-keepalive-share-vars": {},
-	"nginx.ingress.kubernetes.io/auth-keepalive-requests":   {},
-	"nginx.ingress.kubernetes.io/auth-keepalive-timeout":    {},
-	"nginx.ingress.kubernetes.io/auth-proxy-set-headers":    {},
-	"nginx.ingress.kubernetes.io/enable-global-auth":        {},
+	"nginx.ingress.kubernetes.io/auth-tls-error-page":        {},
+	"nginx.ingress.kubernetes.io/auth-tls-match-cn":          {},
+	"nginx.ingress.kubernetes.io/auth-cache-key":             {},
+	"nginx.ingress.kubernetes.io/auth-cache-duration":        {},
+	"nginx.ingress.kubernetes.io/auth-keepalive":             {},
+	"nginx.ingress.kubernetes.io/auth-keepalive-share-vars":  {},
+	"nginx.ingress.kubernetes.io/auth-keepalive-requests":    {},
+	"nginx.ingress.kubernetes.io/auth-keepalive-timeout":     {},
+	"nginx.ingress.kubernetes.io/auth-proxy-set-headers":     {},
+	"nginx.ingress.kubernetes.io/auth-always-set-cookie":     {},
+	"nginx.ingress.kubernetes.io/auth-request-redirect":      {},
+	"nginx.ingress.kubernetes.io/auth-signin-redirect-param": {},
+	// Traefik relies on the Go standard library for client certificate verification,
+	// which has no configurable chain depth limit.
+	"nginx.ingress.kubernetes.io/auth-tls-verify-depth": {},
 	// Error handling.
 	"nginx.ingress.kubernetes.io/disable-proxy-intercept-errors": {},
 	// Rate limiting.
 	"nginx.ingress.kubernetes.io/limit-rate-after":                {},
 	"nginx.ingress.kubernetes.io/limit-rate":                      {},
 	"nginx.ingress.kubernetes.io/limit-whitelist":                 {},
-	"nginx.ingress.kubernetes.io/limit-connections":               {},
 	"nginx.ingress.kubernetes.io/global-rate-limit":               {},
 	"nginx.ingress.kubernetes.io/global-rate-limit-window":        {},
 	"nginx.ingress.kubernetes.io/global-rate-limit-key":           {},
 	"nginx.ingress.kubernetes.io/global-rate-limit-ignored-cidrs": {},
 	// Path handling.
 	"nginx.ingress.kubernetes.io/preserve-trailing-slash": {},
+	// Load balancing.
+	// Traefik silently ignores these: the load balancing strategy is not configurable
+	// through the ingress-nginx provider, and upstream-hash-by has no subset support.
+	"nginx.ingress.kubernetes.io/load-balance":                 {},
+	"nginx.ingress.kubernetes.io/upstream-hash-by-subset":      {},
+	"nginx.ingress.kubernetes.io/upstream-hash-by-subset-size": {},
+	// Buffering.
+	"nginx.ingress.kubernetes.io/proxy-busy-buffers-size": {},
+	// HTTP/2.
+	"nginx.ingress.kubernetes.io/http2-push-preload": {},
 	// Proxy / backend.
 	"nginx.ingress.kubernetes.io/proxy-cookie-domain": {},
 	"nginx.ingress.kubernetes.io/proxy-cookie-path":   {},
@@ -65,6 +80,8 @@ var knownUnsupportedAnnotations = map[string]struct{}{
 	"nginx.ingress.kubernetes.io/satisfy":               {},
 	"nginx.ingress.kubernetes.io/denylist-source-range": {},
 	// Session affinity.
+	// Traefik only implements the persistent affinity mode.
+	"nginx.ingress.kubernetes.io/affinity-mode":                            {},
 	"nginx.ingress.kubernetes.io/session-cookie-conditional-samesite-none": {},
 	"nginx.ingress.kubernetes.io/session-cookie-change-on-failure":         {},
 	// TLS / SSL (ingress).
@@ -93,12 +110,13 @@ var supportedAnnotations = map[string]string{
 	"nginx.ingress.kubernetes.io/auth-secret":      "v3.6",
 	"nginx.ingress.kubernetes.io/auth-realm":       "v3.6",
 	"nginx.ingress.kubernetes.io/auth-secret-type": "v3.6",
-	"nginx.ingress.kubernetes.io/auth-method":      "v3.6",
+	"nginx.ingress.kubernetes.io/auth-method":      "v3.7",
 	// Forward authentication.
 	"nginx.ingress.kubernetes.io/auth-url":              "v3.6",
 	"nginx.ingress.kubernetes.io/auth-response-headers": "v3.6",
 	"nginx.ingress.kubernetes.io/auth-signin":           "v3.7",
 	"nginx.ingress.kubernetes.io/auth-snippet":          "v3.7",
+	"nginx.ingress.kubernetes.io/enable-global-auth":    "v3.7",
 	// Client TLS authentication.
 	"nginx.ingress.kubernetes.io/auth-tls-secret":                       "v3.7",
 	"nginx.ingress.kubernetes.io/auth-tls-verify-client":                "v3.7",
@@ -170,8 +188,12 @@ var supportedAnnotations = map[string]string{
 	"nginx.ingress.kubernetes.io/proxy-buffers-number":     "v3.7",
 	"nginx.ingress.kubernetes.io/proxy-max-temp-file-size": "v3.7",
 	// Rate limiting.
-	"nginx.ingress.kubernetes.io/limit-rpm": "v3.7",
-	"nginx.ingress.kubernetes.io/limit-rps": "v3.7",
+	"nginx.ingress.kubernetes.io/limit-rpm":              "v3.7",
+	"nginx.ingress.kubernetes.io/limit-rps":              "v3.7",
+	"nginx.ingress.kubernetes.io/limit-burst-multiplier": "v3.7",
+	"nginx.ingress.kubernetes.io/limit-connections":      "v3.7",
+	// Observability.
+	"nginx.ingress.kubernetes.io/enable-access-log": "v3.7",
 	// Server alias.
 	"nginx.ingress.kubernetes.io/server-alias": "v3.7",
 	// Upstream hash.

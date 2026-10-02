@@ -23,5 +23,5 @@ Hash: `abc123def456`
 
 | Annotation | Count | Kind |
 |---|---|---|
-| `nginx.ingress.kubernetes.io/limit-connections` | 2 | unsupported |
+| `nginx.ingress.kubernetes.io/limit-rate` | 2 | unsupported |
 | `nginx.ingress.kubernetes.io/totally-made-up` | 1 | unknown |
