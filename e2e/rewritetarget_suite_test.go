@@ -3,6 +3,7 @@ package e2e
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -653,4 +654,103 @@ func (s *RewriteTargetSuite) TestRelativePathRewriteWithRegexPath() {
 	require.NotNil(s.T(), gatewayResp, "gateway response should not be nil")
 	assert.Equal(s.T(), traefikResp.StatusCode, gatewayResp.StatusCode, "gateway migration: status code mismatch")
 	assert.NotContains(s.T(), gatewayResp.Body, "/newpath/", "gateway must not proxy a rewritten path for /originalfoo")
+}
+
+// deployRewritePair deploys the same rewrite configuration to both controllers.
+// Readiness uses /api, which rewrites successfully even on releases preserving an unmatched suffix.
+func (s *RewriteTargetSuite) deployRewritePair(name, path, pathType, target, prefix string) {
+	s.T().Helper()
+
+	annotations := map[string]string{"nginx.ingress.kubernetes.io/rewrite-target": target}
+	if pathType == "ImplementationSpecific" {
+		annotations["nginx.ingress.kubernetes.io/use-regex"] = "true"
+	}
+	if prefix != "" {
+		annotations["nginx.ingress.kubernetes.io/x-forwarded-prefix"] = prefix
+	}
+
+	for _, c := range []*Cluster{s.traefik, s.nginx} {
+		err := c.DeployIngressWith(ingressTemplateData{
+			Name:        name,
+			Host:        name + "." + c.Name + ".local",
+			Path:        path,
+			PathType:    pathType,
+			Annotations: annotations,
+		})
+		require.NoError(s.T(), err, "deploy %s ingress to %s cluster", name, c.Name)
+		s.T().Cleanup(func() { _ = c.DeleteIngress(name) })
+
+		require.Eventually(s.T(), func() bool {
+			resp := c.MakeRequest(s.T(), name+"."+c.Name+".local", http.MethodGet, "/api", nil, 1, 0)
+			return resp != nil && resp.StatusCode == http.StatusOK && strings.Contains(resp.Body, "Hostname:")
+		}, 30*time.Second, time.Second, "[%s] rewrite ingress %s did not start routing to the backend", c.Name, name)
+	}
+}
+
+// requestRewritePair sends the same request to both controllers and checks the backend URI.
+func (s *RewriteTargetSuite) requestRewritePair(name, path, expectedPath string) (traefikResp, nginxResp *Response) {
+	s.T().Helper()
+
+	traefikResp = s.traefik.MakeRequest(s.T(), name+".traefik.local", http.MethodGet, path, nil, 3, time.Second)
+	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
+	nginxResp = s.nginx.MakeRequest(s.T(), name+".nginx.local", http.MethodGet, path, nil, 3, time.Second)
+	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
+
+	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "expected 200 from nginx for %s", path)
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 from traefik for %s", path)
+	assert.Contains(s.T(), nginxResp.Body, "GET "+expectedPath+" HTTP/1.1", "nginx backend should see the rewritten URI")
+	assert.Contains(s.T(), traefikResp.Body, "GET "+expectedPath+" HTTP/1.1", "traefik backend should see the rewritten URI")
+
+	return traefikResp, nginxResp
+}
+
+// TestRewriteReplacesWholePath checks that an unmatched suffix is discarded, not appended to the target.
+// See https://github.com/traefik/traefik/issues/14062.
+func (s *RewriteTargetSuite) TestRewriteReplacesWholePath() {
+	testCases := []struct {
+		desc         string
+		target       string
+		path         string
+		expectedPath string
+	}{
+		{desc: "root", target: "/", path: "/api/v1", expectedPath: "/"},
+		{desc: "nested-path", target: "/new", path: "/api/v1/users", expectedPath: "/new"},
+		{desc: "repeated-match", target: "/new", path: "/api/api", expectedPath: "/new"},
+		{desc: "query-string", target: "/new", path: "/api/v1?q=one", expectedPath: "/new?q=one"},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.desc, func() {
+			name := "rewrite-whole-path-" + tc.desc
+			s.deployRewritePair(name, "/api", "Prefix", tc.target, "")
+			s.requestRewritePair(name, tc.path, tc.expectedPath)
+		})
+	}
+}
+
+// TestRewriteForwardedPrefix checks that neither a literal nor an expanded prefix retains the unmatched suffix.
+func (s *RewriteTargetSuite) TestRewriteForwardedPrefix() {
+	testCases := []struct {
+		desc           string
+		path           string
+		pathType       string
+		prefix         string
+		expectedPrefix string
+	}{
+		{desc: "literal", path: "/api", pathType: "Prefix", prefix: "/edge", expectedPrefix: "/edge"},
+		{desc: "capture", path: "/(api)", pathType: "ImplementationSpecific", prefix: "/$1", expectedPrefix: "/api"},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.desc, func() {
+			name := "rewrite-forwarded-prefix-" + tc.desc
+			s.deployRewritePair(name, tc.path, tc.pathType, "/new", tc.prefix)
+			traefikResp, nginxResp := s.requestRewritePair(name, "/api/v1", "/new")
+
+			assert.Equal(s.T(), nginxResp.RequestHeaders["X-Forwarded-Prefix"], traefikResp.RequestHeaders["X-Forwarded-Prefix"], "X-Forwarded-Prefix mismatch")
+			assert.Equal(s.T(), tc.expectedPrefix, nginxResp.RequestHeaders["X-Forwarded-Prefix"], "nginx should not retain the unmatched suffix in X-Forwarded-Prefix")
+			assert.Equal(s.T(), tc.expectedPrefix, traefikResp.RequestHeaders["X-Forwarded-Prefix"], "traefik should not retain the unmatched suffix in X-Forwarded-Prefix")
+		})
+	}
 }
