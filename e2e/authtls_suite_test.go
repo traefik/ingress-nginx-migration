@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"math/big"
 	"net/http"
 	"strings"
@@ -68,9 +67,7 @@ type authTLSCerts struct {
 type AuthTLSSuite struct {
 	BaseSuite
 
-	certs        authTLSCerts
-	traefikHTTPS string // host:port for HTTPS on traefik cluster
-	nginxHTTPS   string // host:port for HTTPS on nginx cluster
+	certs authTLSCerts
 }
 
 func TestAuthTLSSuite(t *testing.T) {
@@ -84,10 +81,6 @@ func (s *AuthTLSSuite) SetupSuite() {
 	certs, err := generateAuthTLSCerts()
 	require.NoError(s.T(), err, "generate mTLS certificates")
 	s.certs = certs
-
-	// Resolve HTTPS ports from the cluster structs.
-	s.traefikHTTPS = fmt.Sprintf("%s:%s", s.traefik.Host, s.traefik.PortHTTPS)
-	s.nginxHTTPS = fmt.Sprintf("%s:%s", s.nginx.Host, s.nginx.PortHTTPS)
 
 	// Deploy the CA certificate secret to both clusters.
 	// The provider reads ca.crt from the secret data.
@@ -227,66 +220,6 @@ func (s *AuthTLSSuite) deployAuthTLSIngress(name, traefikHost, nginxHost string,
 		TLSSecret:   authTLSServerTLSSecretName,
 	})
 	require.NoError(s.T(), err, "deploy %s ingress to nginx cluster", name)
-}
-
-// makeTLSRequest makes an HTTPS request to the given cluster endpoint with optional client certificate.
-// It returns the parsed Response or nil on failure.
-func makeTLSRequest(t *testing.T, hostPort, host string, clientCert *tls.Certificate, maxRetries int, delay time.Duration) *Response {
-	t.Helper()
-
-	url := fmt.Sprintf("https://%s/", hostPort)
-
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		ServerName:         host,
-	}
-	if clientCert != nil {
-		tlsConfig.Certificates = []tls.Certificate{*clientCert}
-	}
-
-	client := &http.Client{
-		Timeout:       5 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
-
-	var lastErr error
-	for range maxRetries {
-		req, err := http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			lastErr = err
-			time.Sleep(delay)
-			continue
-		}
-		req.Host = host
-
-		resp, err := client.Do(req)
-		if err != nil {
-			lastErr = err
-			time.Sleep(delay)
-			continue
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			lastErr = err
-			time.Sleep(delay)
-			continue
-		}
-
-		return &Response{
-			StatusCode:      resp.StatusCode,
-			Body:            string(body),
-			ResponseHeaders: resp.Header,
-			RequestHeaders:  parseWhoamiHeaders(string(body)),
-		}
-	}
-
-	t.Logf("TLS request to %s (host=%s) failed after %d retries: %v", hostPort, host, maxRetries, lastErr)
-	return nil
 }
 
 // --- Certificate generation helpers ---
@@ -446,8 +379,8 @@ func generateServerCert(caCert *x509.Certificate, caKey *ecdsa.PrivateKey, hosts
 
 func (s *AuthTLSSuite) TestClientCertRequired() {
 	// Without client cert: should be rejected.
-	traefikResp := makeTLSRequest(s.T(), s.traefikHTTPS, authTLSRequiredTraefikHost, nil, 5, 1*time.Second)
-	nginxResp := makeTLSRequest(s.T(), s.nginxHTTPS, authTLSRequiredNginxHost, nil, 5, 1*time.Second)
+	traefikResp := s.traefik.MakeTLSRequest(s.T(), authTLSRequiredTraefikHost, http.MethodGet, "/", nil, nil, 5, 1*time.Second)
+	nginxResp := s.nginx.MakeTLSRequest(s.T(), authTLSRequiredNginxHost, http.MethodGet, "/", nil, nil, 5, 1*time.Second)
 
 	// When verify-client is "on" and no client cert is presented, the TLS handshake
 	// may fail entirely (nil response) or the server returns 400/403.
@@ -464,10 +397,10 @@ func (s *AuthTLSSuite) TestClientCertRequired() {
 	}
 
 	// With valid client cert: should succeed.
-	traefikResp = makeTLSRequest(s.T(), s.traefikHTTPS, authTLSRequiredTraefikHost, &s.certs.clientCert, 5, 1*time.Second)
+	traefikResp = s.traefik.MakeTLSRequest(s.T(), authTLSRequiredTraefikHost, http.MethodGet, "/", nil, &s.certs.clientCert, 5, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil with valid client cert")
 
-	nginxResp = makeTLSRequest(s.T(), s.nginxHTTPS, authTLSRequiredNginxHost, &s.certs.clientCert, 5, 1*time.Second)
+	nginxResp = s.nginx.MakeTLSRequest(s.T(), authTLSRequiredNginxHost, http.MethodGet, "/", nil, &s.certs.clientCert, 5, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil with valid client cert")
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch with valid client cert")
@@ -476,20 +409,20 @@ func (s *AuthTLSSuite) TestClientCertRequired() {
 
 func (s *AuthTLSSuite) TestClientCertOptional() {
 	// Without client cert: should succeed (optional does not require a cert).
-	traefikResp := makeTLSRequest(s.T(), s.traefikHTTPS, authTLSOptionalTraefikHost, nil, 5, 1*time.Second)
+	traefikResp := s.traefik.MakeTLSRequest(s.T(), authTLSOptionalTraefikHost, http.MethodGet, "/", nil, nil, 5, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil without client cert (optional)")
 
-	nginxResp := makeTLSRequest(s.T(), s.nginxHTTPS, authTLSOptionalNginxHost, nil, 5, 1*time.Second)
+	nginxResp := s.nginx.MakeTLSRequest(s.T(), authTLSOptionalNginxHost, http.MethodGet, "/", nil, nil, 5, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil without client cert (optional)")
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch without cert (optional)")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 without client cert when verify-client is optional")
 
 	// With valid client cert: should also succeed.
-	traefikResp = makeTLSRequest(s.T(), s.traefikHTTPS, authTLSOptionalTraefikHost, &s.certs.clientCert, 5, 1*time.Second)
+	traefikResp = s.traefik.MakeTLSRequest(s.T(), authTLSOptionalTraefikHost, http.MethodGet, "/", nil, &s.certs.clientCert, 5, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil with valid client cert (optional)")
 
-	nginxResp = makeTLSRequest(s.T(), s.nginxHTTPS, authTLSOptionalNginxHost, &s.certs.clientCert, 5, 1*time.Second)
+	nginxResp = s.nginx.MakeTLSRequest(s.T(), authTLSOptionalNginxHost, http.MethodGet, "/", nil, &s.certs.clientCert, 5, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil with valid client cert (optional)")
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch with valid cert (optional)")
@@ -498,20 +431,20 @@ func (s *AuthTLSSuite) TestClientCertOptional() {
 
 func (s *AuthTLSSuite) TestClientCertOff() {
 	// Without client cert: should succeed.
-	traefikResp := makeTLSRequest(s.T(), s.traefikHTTPS, authTLSOffTraefikHost, nil, 5, 1*time.Second)
+	traefikResp := s.traefik.MakeTLSRequest(s.T(), authTLSOffTraefikHost, http.MethodGet, "/", nil, nil, 5, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil without client cert (off)")
 
-	nginxResp := makeTLSRequest(s.T(), s.nginxHTTPS, authTLSOffNginxHost, nil, 5, 1*time.Second)
+	nginxResp := s.nginx.MakeTLSRequest(s.T(), authTLSOffNginxHost, http.MethodGet, "/", nil, nil, 5, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil without client cert (off)")
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch without cert (off)")
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "expected 200 without client cert when verify-client is off")
 
 	// With client cert: should also succeed.
-	traefikResp = makeTLSRequest(s.T(), s.traefikHTTPS, authTLSOffTraefikHost, &s.certs.clientCert, 5, 1*time.Second)
+	traefikResp = s.traefik.MakeTLSRequest(s.T(), authTLSOffTraefikHost, http.MethodGet, "/", nil, &s.certs.clientCert, 5, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil with client cert (off)")
 
-	nginxResp = makeTLSRequest(s.T(), s.nginxHTTPS, authTLSOffNginxHost, &s.certs.clientCert, 5, 1*time.Second)
+	nginxResp = s.nginx.MakeTLSRequest(s.T(), authTLSOffNginxHost, http.MethodGet, "/", nil, &s.certs.clientCert, 5, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil with client cert (off)")
 
 	assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch with cert (off)")
@@ -520,8 +453,8 @@ func (s *AuthTLSSuite) TestClientCertOff() {
 
 func (s *AuthTLSSuite) TestInvalidClientCert() {
 	// With a client cert signed by a different CA: should be rejected when verify-client is "on".
-	traefikResp := makeTLSRequest(s.T(), s.traefikHTTPS, authTLSRequiredTraefikHost, &s.certs.invalidClientCert, 5, 1*time.Second)
-	nginxResp := makeTLSRequest(s.T(), s.nginxHTTPS, authTLSRequiredNginxHost, &s.certs.invalidClientCert, 5, 1*time.Second)
+	traefikResp := s.traefik.MakeTLSRequest(s.T(), authTLSRequiredTraefikHost, http.MethodGet, "/", nil, &s.certs.invalidClientCert, 5, 1*time.Second)
+	nginxResp := s.nginx.MakeTLSRequest(s.T(), authTLSRequiredNginxHost, http.MethodGet, "/", nil, &s.certs.invalidClientCert, 5, 1*time.Second)
 
 	// The TLS handshake may fail entirely (nil response) or the server returns 400/403.
 	if traefikResp != nil && nginxResp != nil {
@@ -540,10 +473,10 @@ func (s *AuthTLSSuite) TestInvalidClientCert() {
 func (s *AuthTLSSuite) TestPassCertToUpstream() {
 	// With pass-certificate-to-upstream enabled, the upstream (whoami) should receive
 	// a header containing the client certificate information.
-	traefikResp := makeTLSRequest(s.T(), s.traefikHTTPS, authTLSPassCertTraefikHost, &s.certs.clientCert, 5, 1*time.Second)
+	traefikResp := s.traefik.MakeTLSRequest(s.T(), authTLSPassCertTraefikHost, http.MethodGet, "/", nil, &s.certs.clientCert, 5, 1*time.Second)
 	require.NotNil(s.T(), traefikResp, "traefik response should not be nil")
 
-	nginxResp := makeTLSRequest(s.T(), s.nginxHTTPS, authTLSPassCertNginxHost, &s.certs.clientCert, 5, 1*time.Second)
+	nginxResp := s.nginx.MakeTLSRequest(s.T(), authTLSPassCertNginxHost, http.MethodGet, "/", nil, &s.certs.clientCert, 5, 1*time.Second)
 	require.NotNil(s.T(), nginxResp, "nginx response should not be nil")
 
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "traefik: expected 200 with valid client cert and pass-cert")
