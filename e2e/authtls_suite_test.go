@@ -50,6 +50,12 @@ const (
 	authTLSPassCertOptionalTraefikHost = authTLSPassCertOptionalIngressName + ".traefik.local"
 	authTLSPassCertOptionalNginxHost   = authTLSPassCertOptionalIngressName + ".nginx.local"
 
+	// Pass the certificate to the upstream, with a client certificate requested but not verified during the handshake,
+	// so that the backend learns from Ssl-Client-Verify whether the CA trusts it.
+	authTLSNoCAPassCertIngressName = "mtls-no-ca-pass-cert-test"
+	authTLSNoCAPassCertTraefikHost = authTLSNoCAPassCertIngressName + ".traefik.local"
+	authTLSNoCAPassCertNginxHost   = authTLSNoCAPassCertIngressName + ".nginx.local"
+
 	authTLSCACertSecretName    = "mtls-ca-cert"
 	authTLSServerTLSSecretName = "mtls-server-tls"
 )
@@ -60,6 +66,8 @@ type authTLSCerts struct {
 	caKey      *ecdsa.PrivateKey
 	caCert     *x509.Certificate
 	clientCert tls.Certificate
+	// chainedClientCert is signed by an intermediate CA of the CA, and presented along with it.
+	chainedClientCert tls.Certificate
 	// invalidClientCert is signed by a different CA.
 	invalidClientCert tls.Certificate
 }
@@ -106,6 +114,7 @@ func (s *AuthTLSSuite) SetupSuite() {
 		authTLSPassCertTraefikHost, authTLSPassCertNginxHost,
 		authTLSPassCertNoRedirectTraefikHost, authTLSPassCertNoRedirectNginxHost,
 		authTLSPassCertOptionalTraefikHost, authTLSPassCertOptionalNginxHost,
+		authTLSNoCAPassCertTraefikHost, authTLSNoCAPassCertNginxHost,
 	)
 	require.NoError(s.T(), err, "generate server certificate")
 
@@ -167,6 +176,13 @@ func (s *AuthTLSSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream": "true",
 	})
 
+	// 7. auth-tls-pass-certificate-to-upstream="true" with verify-client="optional_no_ca".
+	s.deployAuthTLSIngress(authTLSNoCAPassCertIngressName, authTLSNoCAPassCertTraefikHost, authTLSNoCAPassCertNginxHost, map[string]string{
+		"nginx.ingress.kubernetes.io/auth-tls-secret":                       testNamespace + "/" + authTLSCACertSecretName,
+		"nginx.ingress.kubernetes.io/auth-tls-verify-client":                "optional_no_ca",
+		"nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream": "true",
+	})
+
 	// Wait for all ingresses to be ready.
 	s.traefik.WaitForIngressReady(s.T(), authTLSRequiredTraefikHost, 30, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), authTLSRequiredNginxHost, 30, 1*time.Second)
@@ -180,6 +196,8 @@ func (s *AuthTLSSuite) SetupSuite() {
 	s.nginx.WaitForIngressReady(s.T(), authTLSPassCertNoRedirectNginxHost, 30, 1*time.Second)
 	s.traefik.WaitForIngressReady(s.T(), authTLSPassCertOptionalTraefikHost, 30, 1*time.Second)
 	s.nginx.WaitForIngressReady(s.T(), authTLSPassCertOptionalNginxHost, 30, 1*time.Second)
+	s.traefik.WaitForIngressReady(s.T(), authTLSNoCAPassCertTraefikHost, 30, 1*time.Second)
+	s.nginx.WaitForIngressReady(s.T(), authTLSNoCAPassCertNginxHost, 30, 1*time.Second)
 }
 
 func (s *AuthTLSSuite) TearDownSuite() {
@@ -195,6 +213,8 @@ func (s *AuthTLSSuite) TearDownSuite() {
 	_ = s.nginx.DeleteIngress(authTLSPassCertNoRedirectIngressName)
 	_ = s.traefik.DeleteIngress(authTLSPassCertOptionalIngressName)
 	_ = s.nginx.DeleteIngress(authTLSPassCertOptionalIngressName)
+	_ = s.traefik.DeleteIngress(authTLSNoCAPassCertIngressName)
+	_ = s.nginx.DeleteIngress(authTLSNoCAPassCertIngressName)
 	_ = s.traefik.DeleteSecret(authTLSCACertSecretName)
 	_ = s.nginx.DeleteSecret(authTLSCACertSecretName)
 	_ = s.traefik.DeleteSecret(authTLSServerTLSSecretName)
@@ -227,6 +247,11 @@ func (s *AuthTLSSuite) deployAuthTLSIngress(name, traefikHost, nginxHost string,
 // generateAuthTLSCerts generates a CA, a valid client certificate signed by that CA,
 // and an invalid client certificate signed by a different CA.
 func generateAuthTLSCerts() (authTLSCerts, error) {
+	return generateAuthTLSCertsWithCAName("Test mTLS CA")
+}
+
+// generateAuthTLSCertsWithCAName is generateAuthTLSCerts with a CA named caName.
+func generateAuthTLSCertsWithCAName(caName string) (authTLSCerts, error) {
 	// Generate the CA key and self-signed certificate.
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -235,7 +260,7 @@ func generateAuthTLSCerts() (authTLSCerts, error) {
 
 	caTemplate := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "Test mTLS CA"},
+		Subject:               pkix.Name{CommonName: caName},
 		NotBefore:             time.Now().Add(-1 * time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		IsCA:                  true,
@@ -260,6 +285,18 @@ func generateAuthTLSCerts() (authTLSCerts, error) {
 	if err != nil {
 		return authTLSCerts{}, fmt.Errorf("generating client certificate: %w", err)
 	}
+
+	// Generate a client certificate signed by an intermediate CA, presented along with the intermediate.
+	intermediateCert, intermediateKey, err := generateIntermediateCA(caCert, caKey, "Test mTLS Intermediate CA")
+	if err != nil {
+		return authTLSCerts{}, fmt.Errorf("generating intermediate CA: %w", err)
+	}
+
+	chainedClientCert, err := generateClientCert(intermediateCert, intermediateKey, "Chained Client")
+	if err != nil {
+		return authTLSCerts{}, fmt.Errorf("generating chained client certificate: %w", err)
+	}
+	chainedClientCert.Certificate = append(chainedClientCert.Certificate, intermediateCert.Raw)
 
 	// Generate an invalid client certificate signed by a different (rogue) CA.
 	rogueCAKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -297,8 +334,71 @@ func generateAuthTLSCerts() (authTLSCerts, error) {
 		caKey:             caKey,
 		caCert:            caCert,
 		clientCert:        clientCert,
+		chainedClientCert: chainedClientCert,
 		invalidClientCert: invalidClientCert,
 	}, nil
+}
+
+// generateIntermediateCA creates an intermediate CA certificate signed by the given CA.
+func generateIntermediateCA(caCert *x509.Certificate, caKey *ecdsa.PrivateKey, commonName string) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating intermediate CA key: %w", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating intermediate CA certificate: %w", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing intermediate CA certificate: %w", err)
+	}
+
+	return cert, key, nil
+}
+
+// generateSelfSignedClientCert creates a client certificate signed by its own key.
+func generateSelfSignedClientCert(commonName string) (tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generating self-signed client key: %w", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(200),
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("creating self-signed client certificate: %w", err)
+	}
+
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("marshaling self-signed client key: %w", err)
+	}
+
+	return tls.X509KeyPair(
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}),
+	)
 }
 
 // generateClientCert creates a client TLS certificate signed by the given CA.
@@ -587,6 +687,44 @@ func sslClientHeadersReaching(upstream map[string]string) map[string]string {
 	return reaching
 }
 
+// clientSentVerificationHeaders returns Ssl-Client-* headers sent by the client, in both their canonical and their aliasing
+// spellings, except the canonical Ssl-Client-Cert: nginx only sets that one when it passes the certificate to the upstream,
+// see TestKnownDifference_CertHeaderWithoutPassCertDiffers.
+func clientSentVerificationHeaders() map[string]string {
+	headers := forgedSSLClientHeaders()
+	for name, value := range forgedAliasingSSLClientHeaders() {
+		headers[name] = value
+	}
+	delete(headers, "Ssl-Client-Cert")
+
+	return headers
+}
+
+// requestSSLClientHeaders sends the same HTTPS request to both controllers, requires both of them to serve it,
+// and returns the Ssl-Client-* headers each backend received.
+func requestSSLClientHeaders(t *testing.T, traefik, nginx *Cluster, traefikHost, nginxHost, path string, headers map[string]string, clientCert *tls.Certificate) (traefikHeaders, nginxHeaders map[string]string) {
+	t.Helper()
+
+	traefikResp := traefik.MakeTLSRequest(t, traefikHost, http.MethodGet, path, headers, clientCert, 5, 1*time.Second)
+	require.NotNil(t, traefikResp, "traefik: %s", path)
+	nginxResp := nginx.MakeTLSRequest(t, nginxHost, http.MethodGet, path, headers, clientCert, 5, 1*time.Second)
+	require.NotNil(t, nginxResp, "nginx: %s", path)
+
+	require.Equal(t, http.StatusOK, traefikResp.StatusCode, "traefik: %s: body: %s", path, traefikResp.Body)
+	require.Equal(t, http.StatusOK, nginxResp.StatusCode, "nginx: %s: body: %s", path, nginxResp.Body)
+
+	return sslClientHeadersReaching(traefikResp.RequestHeaders), sslClientHeadersReaching(nginxResp.RequestHeaders)
+}
+
+// verifiedSSLClientHeaders returns the headers a backend receives for a verified client certificate that is not passed to it.
+func verifiedSSLClientHeaders(cert tls.Certificate) map[string]string {
+	return map[string]string{
+		"Ssl-Client-Verify":     "SUCCESS",
+		"Ssl-Client-Subject-Dn": cert.Leaf.Subject.String(),
+		"Ssl-Client-Issuer-Dn":  cert.Leaf.Issuer.String(),
+	}
+}
+
 // TestPassCertToUpstreamPlaintextSetsNoCertHeaders checks the plaintext route of an Ingress that
 // disables the HTTPS redirection. Nginx builds these headers from variables that are empty outside
 // of a TLS connection, and omits a header whose value is empty, so the backend receives none of
@@ -702,5 +840,89 @@ func (s *AuthTLSSuite) TestPassCertToUpstreamTLSWithoutClientCertSetsNone() {
 	for _, resp := range map[string]*Response{"traefik": traefikResp, "nginx": nginxResp} {
 		reaching := sslClientHeadersReaching(resp.RequestHeaders)
 		assert.Equal(s.T(), map[string]string{"Ssl-Client-Verify": "NONE"}, reaching)
+	}
+}
+
+// TestWithoutPassCertSetsCertHeaders checks an Ingress requiring a client certificate without passing it to the
+// upstream. Nginx sets Ssl-Client-Verify, Ssl-Client-Subject-Dn and Ssl-Client-Issuer-Dn on every location of a server
+// configured for client certificate authentication, overwriting the values the client sent, and leaves out Ssl-Client-Cert,
+// which auth-tls-pass-certificate-to-upstream controls.
+func (s *AuthTLSSuite) TestWithoutPassCertSetsCertHeaders() {
+	traefikHeaders, nginxHeaders := requestSSLClientHeaders(s.T(), s.traefik, s.nginx, authTLSRequiredTraefikHost, authTLSRequiredNginxHost, "/",
+		clientSentVerificationHeaders(), &s.certs.clientCert)
+
+	assert.Equal(s.T(), verifiedSSLClientHeaders(s.certs.clientCert), nginxHeaders, "nginx")
+	assert.Equal(s.T(), nginxHeaders, traefikHeaders, "traefik")
+}
+
+// TestKnownDifference_CertHeaderWithoutPassCertDiffers documents a known difference on an Ingress requiring a client
+// certificate without passing it to the upstream. Nginx only sets Ssl-Client-Cert when it passes the certificate, so it
+// forwards a value the client sent for it. Traefik owns the header whenever client certificate authentication is configured,
+// and drops that value.
+func (s *AuthTLSSuite) TestKnownDifference_CertHeaderWithoutPassCertDiffers() {
+	traefikHeaders, nginxHeaders := requestSSLClientHeaders(s.T(), s.traefik, s.nginx, authTLSRequiredTraefikHost, authTLSRequiredNginxHost, "/",
+		forgedSSLClientHeaders(), &s.certs.clientCert)
+
+	assert.Equal(s.T(), "FORGED-CERTIFICATE", nginxHeaders["Ssl-Client-Cert"], "nginx should forward the Ssl-Client-Cert header the client sent")
+	assert.NotContains(s.T(), traefikHeaders, "Ssl-Client-Cert", "traefik should drop the Ssl-Client-Cert header the client sent")
+}
+
+// TestClientCertOffSetsNone checks an Ingress declaring a CA with verify-client "off": no client certificate is requested,
+// even from a client having one to present, and the backend is told so.
+func (s *AuthTLSSuite) TestClientCertOffSetsNone() {
+	traefikHeaders, nginxHeaders := requestSSLClientHeaders(s.T(), s.traefik, s.nginx, authTLSOffTraefikHost, authTLSOffNginxHost, "/",
+		clientSentVerificationHeaders(), &s.certs.clientCert)
+
+	assert.Equal(s.T(), map[string]string{"Ssl-Client-Verify": "NONE"}, nginxHeaders, "nginx")
+	assert.Equal(s.T(), nginxHeaders, traefikHeaders, "traefik")
+}
+
+// TestOptionalNoCAWithoutClientCertSetsNone checks a TLS request presenting no certificate to an Ingress with
+// verify-client "optional_no_ca".
+func (s *AuthTLSSuite) TestOptionalNoCAWithoutClientCertSetsNone() {
+	traefikHeaders, nginxHeaders := requestSSLClientHeaders(s.T(), s.traefik, s.nginx, authTLSNoCAPassCertTraefikHost, authTLSNoCAPassCertNginxHost, "/",
+		forgedSSLClientHeaders(), nil)
+
+	assert.Equal(s.T(), map[string]string{"Ssl-Client-Verify": "NONE"}, nginxHeaders, "nginx")
+	assert.Equal(s.T(), nginxHeaders, traefikHeaders, "traefik")
+}
+
+// TestOptionalNoCAUntrustedClientCertSetsFailed checks that verify-client "optional_no_ca" lets a certificate the CA did
+// not sign through the handshake, and that the backend is told that it failed verification.
+// Nginx and Traefik word the failure reason differently (OpenSSL and Go errors), so only the outcome is compared.
+func (s *AuthTLSSuite) TestOptionalNoCAUntrustedClientCertSetsFailed() {
+	traefikHeaders, nginxHeaders := requestSSLClientHeaders(s.T(), s.traefik, s.nginx, authTLSNoCAPassCertTraefikHost, authTLSNoCAPassCertNginxHost, "/",
+		nil, &s.certs.invalidClientCert)
+
+	for name, headers := range map[string]map[string]string{"traefik": traefikHeaders, "nginx": nginxHeaders} {
+		assert.True(s.T(), strings.HasPrefix(headers["Ssl-Client-Verify"], "FAILED:"), "%s: Ssl-Client-Verify is %q", name, headers["Ssl-Client-Verify"])
+		assert.Equal(s.T(), s.certs.invalidClientCert.Leaf.Subject.String(), headers["Ssl-Client-Subject-Dn"], name)
+		assert.NotEmpty(s.T(), headers["Ssl-Client-Cert"], name)
+	}
+}
+
+// TestOptionalNoCATrustedClientCertSetsSuccess checks that a certificate signed by the CA is reported as verified with
+// verify-client "optional_no_ca". Like most client certificates, it is valid for client authentication only (extended key
+// usage), which the verification must accept as nginx does.
+func (s *AuthTLSSuite) TestOptionalNoCATrustedClientCertSetsSuccess() {
+	traefikHeaders, nginxHeaders := requestSSLClientHeaders(s.T(), s.traefik, s.nginx, authTLSNoCAPassCertTraefikHost, authTLSNoCAPassCertNginxHost, "/",
+		nil, &s.certs.clientCert)
+
+	for name, headers := range map[string]map[string]string{"traefik": traefikHeaders, "nginx": nginxHeaders} {
+		assert.Equal(s.T(), "SUCCESS", headers["Ssl-Client-Verify"], name)
+		assert.Equal(s.T(), s.certs.clientCert.Leaf.Subject.String(), headers["Ssl-Client-Subject-Dn"], name)
+		assert.NotEmpty(s.T(), headers["Ssl-Client-Cert"], name)
+	}
+}
+
+// TestOptionalNoCAClientCertThroughIntermediateSetsSuccess checks that a certificate signed by an intermediate CA, which
+// the client presents along with it, is reported as verified with verify-client "optional_no_ca".
+func (s *AuthTLSSuite) TestOptionalNoCAClientCertThroughIntermediateSetsSuccess() {
+	traefikHeaders, nginxHeaders := requestSSLClientHeaders(s.T(), s.traefik, s.nginx, authTLSNoCAPassCertTraefikHost, authTLSNoCAPassCertNginxHost, "/",
+		nil, &s.certs.chainedClientCert)
+
+	for name, headers := range map[string]map[string]string{"traefik": traefikHeaders, "nginx": nginxHeaders} {
+		assert.Equal(s.T(), "SUCCESS", headers["Ssl-Client-Verify"], name)
+		assert.Equal(s.T(), s.certs.chainedClientCert.Leaf.Issuer.String(), headers["Ssl-Client-Issuer-Dn"], name)
 	}
 }
