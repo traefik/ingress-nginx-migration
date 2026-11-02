@@ -89,6 +89,7 @@ COMMANDS:
 GLOBAL OPTIONS:
    --addr string                                  Defines the address to listen on for serving the migration report. (default: ":8080") [$ADDR]
    --kubeconfig string                            Defines the kubeconfig file to use to connect to the Kubernetes cluster. [$KUBECONFIG]
+   --input-file string                            Defines a YAML or JSON file holding the Ingress (and optionally IngressClass) resources to analyze, instead of reading them from the cluster ('-' reads stdin). When set, no Kubernetes API is called. [$INPUT_FILE]
    --namespaces string [ --namespaces string ]    Defines the namespaces to analyze. When empty, all namespaces are analyzed. [$NAMESPACES]
    --ingress-class string                         Defines the name of the ingress class this controller satisfies. [$INGRESS_CLASS]
    --controller-class string                      Defines the Ingress Controller class to analyze. When empty, 'k8s.io/ingress-nginx' is used. [$CONTROLLER_CLASS]
@@ -146,6 +147,34 @@ Notes:
 ```bash
 ingress-nginx-migration --format json | jq -e '.unsupportedIngressCount == 0'
 ```
+
+### Offline Analysis From a File
+
+The `--input-file` flag analyzes Ingress resources exported to a file, without any access to the cluster.
+This is useful when the tool cannot run against the cluster directly, e.g. on a restricted enterprise cluster.
+
+The file can be YAML or JSON, hold one or more documents, and each document can be a single resource or a `List`,
+such as the output of `kubectl get -o yaml`. Only `networking.k8s.io/v1` `Ingress` and `IngressClass` resources are read;
+other kinds are skipped.
+
+```bash
+# Export the resources, wherever you have cluster access:
+kubectl get ingress,ingressclass -A -o yaml > ingresses.yaml
+
+# Analyze them offline:
+ingress-nginx-migration --input-file ingresses.yaml --format markdown --output-file report.md
+```
+
+When the file holds no `IngressClass`, the tool assumes the one named by `--ingress-class` is an NGINX class,
+so Ingresses using `spec.ingressClassName` are still matched. For example, with only Ingresses exported from
+the AKS application routing add-on:
+
+```bash
+kubectl get ingress -A -o yaml > ingresses.yaml
+ingress-nginx-migration --input-file ingresses.yaml --ingress-class webapprouting.kubernetes.azure.com --format markdown
+```
+
+The `--namespaces` flag filters the Ingresses read from the file.
 
 ### Required Permissions
 

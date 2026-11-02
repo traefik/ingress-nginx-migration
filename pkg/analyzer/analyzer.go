@@ -44,15 +44,7 @@ func New(k8sClient *kubernetes.Clientset, namespaces []string, controllerClass s
 		namespaces = []string{v1.NamespaceAll}
 	}
 
-	// When controller class is empty, we use the default one.
-	if controllerClass == "" {
-		controllerClass = defaultControllerName
-	}
-
-	// When ingress class is empty, we use the default one.
-	if ingressClass == "" {
-		ingressClass = defaultAnnotationValue
-	}
+	controllerClass, ingressClass = withClassDefaults(controllerClass, ingressClass)
 
 	// Initialize IngressClass listers.
 	clusterFactory := kinformers.NewSharedInformerFactoryWithOptions(k8sClient, resyncPeriod)
@@ -83,9 +75,28 @@ func New(k8sClient *kubernetes.Clientset, namespaces []string, controllerClass s
 	}, nil
 }
 
+// withClassDefaults returns the controller and ingress classes, falling back to
+// the ingress-nginx defaults when they are empty.
+func withClassDefaults(controllerClass, ingressClass string) (string, string) {
+	if controllerClass == "" {
+		controllerClass = defaultControllerName
+	}
+
+	if ingressClass == "" {
+		ingressClass = defaultAnnotationValue
+	}
+
+	return controllerClass, ingressClass
+}
+
 // Start starts the analyzer informers and waits for their caches to sync.
 // This method blocks until the caches are synced or the context is done.
 func (a *Analyzer) Start(ctx context.Context) error {
+	// An analyzer built from a file has no informers to start.
+	if a.clusterFactory == nil {
+		return nil
+	}
+
 	// Start cluster-wide informers.
 	a.clusterFactory.Start(ctx.Done())
 	for t, ok := range a.clusterFactory.WaitForCacheSync(ctx.Done()) {

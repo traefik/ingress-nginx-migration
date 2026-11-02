@@ -28,6 +28,7 @@ import (
 const (
 	flagAddr               = "addr"
 	flagKubeconfig         = "kubeconfig"
+	flagInputFile          = "input-file"
 	flagNamespaces         = "namespaces"
 	flagIngressClass       = "ingress-class"
 	flagControllerClass    = "controller-class"
@@ -60,6 +61,11 @@ func main() {
 				Name:    flagKubeconfig,
 				Usage:   "Defines the kubeconfig file to use to connect to the Kubernetes cluster.",
 				Sources: cli.EnvVars(strcase.ToSNAKE(flagKubeconfig)),
+			},
+			&cli.StringFlag{
+				Name:    flagInputFile,
+				Usage:   "Defines a YAML or JSON file holding the Ingress (and optionally IngressClass) resources to analyze, instead of reading them from the cluster ('-' reads stdin). When set, no Kubernetes API is called.",
+				Sources: cli.EnvVars(strcase.ToSNAKE(flagInputFile)),
 			},
 			&cli.StringSliceFlag{
 				Name:    flagNamespaces,
@@ -116,27 +122,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	// Creates the Kubernetes client.
-	config, err := rest.InClusterConfig()
-	if err != nil && !errors.Is(err, rest.ErrNotInCluster) {
-		return fmt.Errorf("creating in cluster config: %w", err)
-	}
+	analyzr, err := newAnalyzer(cmd)
 	if err != nil {
-		config, err = clientcmd.BuildConfigFromFlags("", cmd.String(flagKubeconfig))
-		if err != nil {
-			return fmt.Errorf("creating config from flags: %w", err)
-		}
-	}
-
-	k8sClient, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("creating k8s client from config: %w", err)
-	}
-
-	// Creates and starts the analyzer and generates the report.
-	analyzr, err := analyzer.New(k8sClient, cmd.StringSlice(flagNamespaces), cmd.String(flagControllerClass), cmd.Bool(flagWatchWithoutClass), cmd.String(flagIngressClass), cmd.Bool(flagIngressClassByName))
-	if err != nil {
-		return fmt.Errorf("creating analyzer: %w", err)
+		return err
 	}
 
 	if err = analyzr.Start(ctx); err != nil {
@@ -200,6 +188,49 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	return nil
+}
+
+// newAnalyzer creates the analyzer, reading the resources from the input file
+// when one is given, or from the Kubernetes cluster otherwise.
+func newAnalyzer(cmd *cli.Command) (*analyzer.Analyzer, error) {
+	namespaces := cmd.StringSlice(flagNamespaces)
+	controllerClass := cmd.String(flagControllerClass)
+	watchWithoutClass := cmd.Bool(flagWatchWithoutClass)
+	ingressClass := cmd.String(flagIngressClass)
+	ingressClassByName := cmd.Bool(flagIngressClassByName)
+
+	if inputFile := cmd.String(flagInputFile); inputFile != "" {
+		analyzr, err := analyzer.NewFromFile(inputFile, namespaces, controllerClass, watchWithoutClass, ingressClass, ingressClassByName)
+		if err != nil {
+			return nil, fmt.Errorf("creating analyzer from file: %w", err)
+		}
+
+		return analyzr, nil
+	}
+
+	// Creates the Kubernetes client.
+	config, err := rest.InClusterConfig()
+	if err != nil && !errors.Is(err, rest.ErrNotInCluster) {
+		return nil, fmt.Errorf("creating in cluster config: %w", err)
+	}
+	if err != nil {
+		config, err = clientcmd.BuildConfigFromFlags("", cmd.String(flagKubeconfig))
+		if err != nil {
+			return nil, fmt.Errorf("creating config from flags: %w", err)
+		}
+	}
+
+	k8sClient, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("creating k8s client from config: %w", err)
+	}
+
+	analyzr, err := analyzer.New(k8sClient, namespaces, controllerClass, watchWithoutClass, ingressClass, ingressClassByName)
+	if err != nil {
+		return nil, fmt.Errorf("creating analyzer: %w", err)
+	}
+
+	return analyzr, nil
 }
 
 // oneShotOutput captures the validated configuration for a one-shot report
