@@ -3,6 +3,7 @@ package e2e
 import (
 	"crypto/tls"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -40,6 +41,30 @@ const (
 	authTLSOtherCAHost              = "mtls-other-ca-host"
 	authTLSOtherCAHostOwnerIngress  = "mtls-other-ca-host-owner"
 	authTLSOtherCAHostMemberIngress = "mtls-other-ca-host-member"
+
+	// An Ingress declares an auth-tls-secret on a rule without paths. ingress-nginx skips such a rule before reading its
+	// auth-tls annotations, so it does not configure client certificate authentication for the path of another Ingress.
+	authTLSNoPathsHost            = "mtls-no-paths-host"
+	authTLSNoPathsHostRuleIngress = "mtls-no-paths-host-rule"
+	authTLSNoPathsHostPathIngress = "mtls-no-paths-host-path"
+
+	// An Ingress declares an auth-tls-secret that does not exist. ingress-nginx then answers 403 to every request for the host,
+	// including the paths of the other Ingresses of the host.
+	authTLSMissingSecretHost              = "mtls-missing-secret-host"
+	authTLSMissingSecretHostBrokenIngress = "mtls-missing-secret-host-broken"
+	authTLSMissingSecretHostPublicIngress = "mtls-missing-secret-host-public"
+	authTLSMissingSecretName              = "mtls-missing-secret"
+
+	// The first Ingress of the host declares an auth-tls-secret without CA certificate, and passes the certificate to the upstream.
+	// ingress-nginx disables client certificate authentication for that Ingress, so the second one configures it for the host.
+	// Names are ordered like the mixed modes ones, so that the "without-ca" one is processed first.
+	authTLSWithoutCAHost                 = "mtls-without-ca-host"
+	authTLSWithoutCAHostWithoutCAIngress = "mtls-without-ca-host-without-ca"
+	authTLSWithoutCAHostOwnerIngress     = "mtls-without-ca-host-owner"
+
+	// A single Ingress declares an auth-tls-secret without CA certificate: ingress-nginx serves it without client certificate authentication.
+	authTLSWithoutCAOnlyHost    = "mtls-without-ca-only"
+	authTLSWithoutCAOnlyIngress = "mtls-without-ca-only"
 
 	authTLSSharedHostCASecretName      = "mtls-shared-host-ca"
 	authTLSSharedHostOtherCASecretName = "mtls-shared-host-other-ca"
@@ -80,6 +105,10 @@ func (s *AuthTLSSharedHostSuite) SetupSuite() {
 		authTLSMixedModesHost+".traefik.local", authTLSMixedModesHost+".nginx.local",
 		authTLSNoCAHost+".traefik.local", authTLSNoCAHost+".nginx.local",
 		authTLSOtherCAHost+".traefik.local", authTLSOtherCAHost+".nginx.local",
+		authTLSNoPathsHost+".traefik.local", authTLSNoPathsHost+".nginx.local",
+		authTLSMissingSecretHost+".traefik.local", authTLSMissingSecretHost+".nginx.local",
+		authTLSWithoutCAHost+".traefik.local", authTLSWithoutCAHost+".nginx.local",
+		authTLSWithoutCAOnlyHost+".traefik.local", authTLSWithoutCAOnlyHost+".nginx.local",
 	)
 	require.NoError(s.T(), err, "generate server certificate")
 
@@ -151,9 +180,42 @@ func (s *AuthTLSSharedHostSuite) SetupSuite() {
 		"nginx.ingress.kubernetes.io/auth-tls-verify-client": "on",
 	})
 
+	s.deployIngressWithoutPaths(authTLSNoPathsHostRuleIngress, authTLSNoPathsHost, map[string]string{
+		"nginx.ingress.kubernetes.io/auth-tls-secret":        testNamespace + "/" + authTLSSharedHostCASecretName,
+		"nginx.ingress.kubernetes.io/auth-tls-verify-client": "on",
+	})
+	s.deployIngress(authTLSNoPathsHostPathIngress, authTLSNoPathsHost, "/path", "", nil)
+
+	s.deployIngress(authTLSMissingSecretHostBrokenIngress, authTLSMissingSecretHost, "/broken", authTLSSharedHostTLSSecretName, map[string]string{
+		"nginx.ingress.kubernetes.io/auth-tls-secret":        testNamespace + "/" + authTLSMissingSecretName,
+		"nginx.ingress.kubernetes.io/auth-tls-verify-client": "on",
+	})
+	s.deployIngress(authTLSMissingSecretHostPublicIngress, authTLSMissingSecretHost, "/public", authTLSSharedHostTLSSecretName, nil)
+
+	// The server TLS secret holds a certificate and its key, but no CA certificate.
+	s.deployIngress(authTLSWithoutCAHostWithoutCAIngress, authTLSWithoutCAHost, "/without-ca", authTLSSharedHostTLSSecretName, map[string]string{
+		"nginx.ingress.kubernetes.io/auth-tls-secret":                       testNamespace + "/" + authTLSSharedHostTLSSecretName,
+		"nginx.ingress.kubernetes.io/auth-tls-verify-client":                "on",
+		"nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream": "true",
+	})
+	s.deployIngress(authTLSWithoutCAHostOwnerIngress, authTLSWithoutCAHost, "/owner", authTLSSharedHostTLSSecretName, map[string]string{
+		"nginx.ingress.kubernetes.io/auth-tls-secret":        testNamespace + "/" + authTLSSharedHostCASecretName,
+		"nginx.ingress.kubernetes.io/auth-tls-verify-client": "on",
+	})
+
+	s.deployIngress(authTLSWithoutCAOnlyIngress, authTLSWithoutCAOnlyHost, "/", authTLSSharedHostTLSSecretName, map[string]string{
+		"nginx.ingress.kubernetes.io/auth-tls-secret":        testNamespace + "/" + authTLSSharedHostTLSSecretName,
+		"nginx.ingress.kubernetes.io/auth-tls-verify-client": "on",
+	})
+
 	// Every Ingress of a host must be loaded before asserting: with only the protected one,
 	// the host would require a client certificate even on an affected Traefik version.
+	// The paths of the Ingresses declaring an auth-tls-secret without CA certificate are not waited for:
+	// an affected Traefik version does not serve them at all, which the tests report.
 	for _, c := range []*Cluster{s.traefik, s.nginx} {
+		s.waitForPath(c, authTLSNoPathsHost, "/path")
+		s.waitForPath(c, authTLSMissingSecretHost, "/public")
+		s.waitForPath(c, authTLSWithoutCAHost, "/owner")
 		s.waitForPath(c, authTLSMixedHost, "/protected")
 		s.waitForPath(c, authTLSMixedHost, "/public")
 		s.waitForPath(c, authTLSMixedHost, "/plaintext")
@@ -182,6 +244,13 @@ func (s *AuthTLSSharedHostSuite) TearDownSuite() {
 		_ = c.DeleteIngress(authTLSNoCAHostMemberIngress)
 		_ = c.DeleteIngress(authTLSOtherCAHostOwnerIngress)
 		_ = c.DeleteIngress(authTLSOtherCAHostMemberIngress)
+		_ = c.DeleteIngress(authTLSNoPathsHostRuleIngress)
+		_ = c.DeleteIngress(authTLSNoPathsHostPathIngress)
+		_ = c.DeleteIngress(authTLSMissingSecretHostBrokenIngress)
+		_ = c.DeleteIngress(authTLSMissingSecretHostPublicIngress)
+		_ = c.DeleteIngress(authTLSWithoutCAHostWithoutCAIngress)
+		_ = c.DeleteIngress(authTLSWithoutCAHostOwnerIngress)
+		_ = c.DeleteIngress(authTLSWithoutCAOnlyIngress)
 		_ = c.DeleteSecret(authTLSSharedHostCASecretName)
 		_ = c.DeleteSecret(authTLSSharedHostOtherCASecretName)
 		_ = c.DeleteSecret(authTLSSharedHostTLSSecretName)
@@ -201,6 +270,22 @@ func (s *AuthTLSSharedHostSuite) deployIngress(name, host, path, tlsSecret strin
 			TLSSecret:   tlsSecret,
 		})
 		require.NoError(s.T(), err, "deploy %s ingress to %s cluster", name, c.Name)
+	}
+}
+
+// deployIngressWithoutPaths deploys an Ingress declaring a rule without paths on <host>.<cluster>.local to both clusters.
+func (s *AuthTLSSharedHostSuite) deployIngressWithoutPaths(name, host string, annotations map[string]string) {
+	s.T().Helper()
+
+	for _, c := range []*Cluster{s.traefik, s.nginx} {
+		var manifest strings.Builder
+		fmt.Fprintf(&manifest, "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: %s\n  annotations:\n", c.IngressName(name))
+		for key, value := range annotations {
+			fmt.Fprintf(&manifest, "    %s: %q\n", key, value)
+		}
+		fmt.Fprintf(&manifest, "spec:\n  ingressClassName: nginx\n  rules:\n  - host: %q\n", host+"."+c.Name+".local")
+
+		require.NoError(s.T(), c.ApplyManifest(manifest.String()), "deploy %s ingress to %s cluster", name, c.Name)
 	}
 }
 
@@ -367,21 +452,76 @@ func (s *AuthTLSSharedHostSuite) TestFirstIngressCAWins() {
 	s.assertClientCertRejected(traefikResp, nginxResp, "/member")
 }
 
-// TestKnownDifference_PassCertToUpstreamBehaviorDiffers documents a known difference on a host shared by several Ingresses.
-// Nginx passes the client certificate (Ssl-Client-Cert) to the upstream on every path of the host or on none of them,
-// following auth-tls-pass-certificate-to-upstream on the first Ingress, which configures client certificate authentication
-// for the host. Traefik follows the annotation of the Ingress serving the path, so the two differ on the path of a second
-// Ingress that does not set the annotation like the first one:
-//   - when only the second Ingress passes the certificate, Traefik passes it on that path, and nginx does not;
-//   - when only the first Ingress passes the certificate, nginx passes it on the path of the second one, and Traefik does not.
-func (s *AuthTLSSharedHostSuite) TestKnownDifference_PassCertToUpstreamBehaviorDiffers() {
+// TestFirstIngressPassCertWins checks that the client certificate (Ssl-Client-Cert) is passed to the upstream on every path
+// of a host or on none of them, following auth-tls-pass-certificate-to-upstream on the first Ingress, which configures
+// client certificate authentication for the host, whatever the annotation of the Ingress serving the path.
+func (s *AuthTLSSharedHostSuite) TestFirstIngressPassCertWins() {
+	// Only the second Ingress passes the certificate.
 	traefikHeaders, nginxHeaders := s.requestSSLClientHeaders(authTLSNoCAHost, "/member", nil, &s.certs.clientCert)
 
-	assert.NotContains(s.T(), nginxHeaders, "Ssl-Client-Cert", "nginx should follow the first Ingress, which does not pass the certificate")
-	assert.NotEmpty(s.T(), traefikHeaders["Ssl-Client-Cert"], "traefik should follow the Ingress serving the path, which passes the certificate")
+	assert.NotContains(s.T(), nginxHeaders, "Ssl-Client-Cert", "nginx")
+	assert.NotContains(s.T(), traefikHeaders, "Ssl-Client-Cert", "traefik")
 
+	// Only the first Ingress passes the certificate.
 	traefikHeaders, nginxHeaders = s.requestSSLClientHeaders(authTLSMixedModesHost, "/optional", nil, &s.certs.clientCert)
 
-	assert.NotEmpty(s.T(), nginxHeaders["Ssl-Client-Cert"], "nginx should follow the first Ingress, which passes the certificate")
-	assert.NotContains(s.T(), traefikHeaders, "Ssl-Client-Cert", "traefik should follow the Ingress serving the path, which does not pass the certificate")
+	assert.NotEmpty(s.T(), nginxHeaders["Ssl-Client-Cert"], "nginx")
+	assert.NotEmpty(s.T(), traefikHeaders["Ssl-Client-Cert"], "traefik")
+}
+
+// TestRuleWithoutPathsDoesNotConfigureClientAuth checks that auth-tls annotations on an Ingress whose rule declares no paths
+// do not configure client certificate authentication for the host, which serves the path of another Ingress without it.
+func (s *AuthTLSSharedHostSuite) TestRuleWithoutPathsDoesNotConfigureClientAuth() {
+	traefikHeaders, nginxHeaders := s.requestSSLClientHeaders(authTLSNoPathsHost, "/path", nil, nil)
+
+	assert.Empty(s.T(), nginxHeaders, "nginx")
+	assert.Equal(s.T(), nginxHeaders, traefikHeaders, "traefik")
+}
+
+// TestMissingSecretForbidsWholeHost checks that an Ingress declaring an auth-tls-secret that does not exist makes the whole
+// host answer 403, on the paths of every Ingress of the host and on the paths no Ingress declares, over HTTPS and HTTP,
+// whatever the client certificate.
+func (s *AuthTLSSharedHostSuite) TestMissingSecretForbidsWholeHost() {
+	for _, path := range []string{"/broken", "/public", "/undeclared"} {
+		for _, clientCert := range []*tls.Certificate{nil, &s.certs.clientCert} {
+			traefikResp, nginxResp := s.request(authTLSMissingSecretHost, path, clientCert)
+			require.NotNil(s.T(), traefikResp, "traefik: %s", path)
+			require.NotNil(s.T(), nginxResp, "nginx: %s", path)
+
+			assert.Equal(s.T(), http.StatusForbidden, nginxResp.StatusCode, "nginx: HTTPS %s (client certificate: %v)", path, clientCert != nil)
+			assert.Equal(s.T(), http.StatusForbidden, traefikResp.StatusCode, "traefik: HTTPS %s (client certificate: %v)", path, clientCert != nil)
+		}
+
+		traefikResp := s.traefik.MakeRequest(s.T(), authTLSMissingSecretHost+".traefik.local", http.MethodGet, path, nil, 3, time.Second)
+		require.NotNil(s.T(), traefikResp, "traefik: %s", path)
+		nginxResp := s.nginx.MakeRequest(s.T(), authTLSMissingSecretHost+".nginx.local", http.MethodGet, path, nil, 3, time.Second)
+		require.NotNil(s.T(), nginxResp, "nginx: %s", path)
+
+		assert.Equal(s.T(), http.StatusForbidden, nginxResp.StatusCode, "nginx: HTTP %s", path)
+		assert.Equal(s.T(), http.StatusForbidden, traefikResp.StatusCode, "traefik: HTTP %s", path)
+	}
+}
+
+// TestSecretWithoutCALeavesClientAuthToNextIngress checks that an Ingress declaring an auth-tls-secret without CA certificate
+// is served, and that the client certificate authentication of the host comes from the next Ingress declaring one,
+// including whether the certificate is passed to the upstream.
+func (s *AuthTLSSharedHostSuite) TestSecretWithoutCALeavesClientAuthToNextIngress() {
+	for _, path := range []string{"/without-ca", "/owner"} {
+		traefikResp, nginxResp := s.request(authTLSWithoutCAHost, path, nil)
+		s.assertClientCertRejected(traefikResp, nginxResp, path)
+
+		traefikHeaders, nginxHeaders := s.requestSSLClientHeaders(authTLSWithoutCAHost, path, nil, &s.certs.clientCert)
+
+		assert.Equal(s.T(), verifiedSSLClientHeaders(s.certs.clientCert), nginxHeaders, "nginx: %s", path)
+		assert.Equal(s.T(), nginxHeaders, traefikHeaders, "traefik: %s", path)
+	}
+}
+
+// TestSecretWithoutCAServesWithoutClientAuth checks that an Ingress declaring an auth-tls-secret without CA certificate,
+// alone on its host, is served without client certificate authentication.
+func (s *AuthTLSSharedHostSuite) TestSecretWithoutCAServesWithoutClientAuth() {
+	traefikHeaders, nginxHeaders := s.requestSSLClientHeaders(authTLSWithoutCAOnlyHost, "/", nil, nil)
+
+	assert.Empty(s.T(), nginxHeaders, "nginx")
+	assert.Equal(s.T(), nginxHeaders, traefikHeaders, "traefik")
 }
