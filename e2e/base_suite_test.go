@@ -350,6 +350,7 @@ type ingressTemplateData struct {
 	PathType        string
 	Annotations     map[string]string
 	DefaultBackend  *ingressDefaultBackend
+	NoRules         bool   // if true, renders no spec.rules, which requires DefaultBackend
 	ServiceName     string // default: "backend"
 	ServicePort     int    // default: 80
 	ServicePortName string // if non-empty, uses port name instead of number

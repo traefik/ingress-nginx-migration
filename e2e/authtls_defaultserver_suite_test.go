@@ -117,17 +117,19 @@ func (s *AuthTLSDefaultServerSuite) cleanup() {
 	_ = s.traefik.DeleteSecret(authTLSDefaultServerCASecretName)
 
 	for _, c := range []*Cluster{s.traefik, s.nginx} {
-		if !s.waitForDefaultServerReset(c) {
+		if !waitForDefaultServerReset(s.T(), c, s.host(c, authTLSDefaultServerUnknownHost)) {
 			s.T().Errorf("[%s] unknown hosts still served by the host-less Ingress after its deletion", c.Name)
 		}
 	}
 }
 
 // waitForDefaultServerReset reports whether an HTTPS request to an unknown host without client certificate gets a 404 again,
-// meaning the host-less Ingress and its client certificate authentication are gone.
-func (s *AuthTLSDefaultServerSuite) waitForDefaultServerReset(c *Cluster) bool {
+// meaning the Ingress feeding the default server, and its client certificate authentication if any, are gone.
+func waitForDefaultServerReset(t *testing.T, c *Cluster, unknownHost string) bool {
+	t.Helper()
+
 	for range 60 {
-		resp := c.MakeTLSRequest(s.T(), s.host(c, authTLSDefaultServerUnknownHost), http.MethodGet, "/", nil, nil, 1, time.Second)
+		resp := c.MakeTLSRequest(t, unknownHost, http.MethodGet, "/", nil, nil, 1, time.Second)
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			return true
 		}
@@ -206,4 +208,97 @@ func (s *AuthTLSDefaultServerSuite) TestKnownHostKeepsItsClientAuth() {
 
 	traefikResp, nginxResp = s.request(authTLSDefaultServerOptionalHost, &s.certs.clientCert)
 	s.assertServed(traefikResp, nginxResp, authTLSDefaultServerOptionalHost)
+}
+
+const (
+	// A single Ingress without rules declares a default backend and client certificate authentication.
+	// Both controllers watch every Ingress of the shared cluster, so it is deployed once and applies to both.
+	authTLSNoRulesIngress = "mtls-no-rules"
+
+	// No Ingress declares this host, so its requests are served by the default backend of the Ingress without rules.
+	authTLSNoRulesUnknownHost = "mtls-no-rules-unknown"
+
+	authTLSNoRulesCASecretName = "mtls-no-rules-ca"
+)
+
+// AuthTLSNoRulesSuite checks that client certificate authentication declared on an Ingress without rules is ignored:
+// its default backend serves every request whose host matches no other server, without requiring a client certificate.
+// While this Ingress exists, every request to an unknown host is routed to it, on both controllers,
+// which would break the other suites: it is removed, and its effect waited for to clear, when the suite ends.
+type AuthTLSNoRulesSuite struct {
+	BaseSuite
+}
+
+func TestAuthTLSNoRulesSuite(t *testing.T) {
+	suite.Run(t, new(AuthTLSNoRulesSuite))
+}
+
+func (s *AuthTLSNoRulesSuite) SetupSuite() {
+	s.BaseSuite.SetupSuite()
+
+	certs, err := generateAuthTLSCerts()
+	require.NoError(s.T(), err, "generate mTLS certificates")
+
+	// The cleanup is registered before deploying anything, so that a failure in the middle of the setup still removes the Ingress.
+	s.T().Cleanup(s.cleanup)
+
+	err = s.traefik.DeploySecret(secretTemplateData{
+		Name: authTLSNoRulesCASecretName,
+		Type: "Opaque",
+		Data: map[string]string{
+			"ca.crt": base64.StdEncoding.EncodeToString(certs.caCertPEM),
+		},
+	})
+	require.NoError(s.T(), err, "deploy CA secret")
+
+	err = s.traefik.DeployIngressWith(ingressTemplateData{
+		Name:           authTLSNoRulesIngress,
+		NoRules:        true,
+		DefaultBackend: &ingressDefaultBackend{ServiceName: "backend", ServicePort: 80},
+		Annotations: map[string]string{
+			"nginx.ingress.kubernetes.io/auth-tls-secret": testNamespace + "/" + authTLSNoRulesCASecretName,
+		},
+	})
+	require.NoError(s.T(), err, "deploy ingress without rules")
+
+	// The unknown host routes once the Ingress is loaded, checked over HTTP so that it does not depend on client certificates.
+	for _, c := range []*Cluster{s.traefik, s.nginx} {
+		c.WaitForIngressReady(s.T(), s.host(c), 30, time.Second)
+	}
+}
+
+func (s *AuthTLSNoRulesSuite) TearDownSuite() {
+	if s.T().Failed() {
+		s.T().Log(s.traefik.GetIngressControllerLogs(500))
+		s.T().Log(s.nginx.GetIngressControllerLogs(500))
+	}
+}
+
+// cleanup removes the suite resources, and waits until no controller serves the unknown hosts anymore.
+func (s *AuthTLSNoRulesSuite) cleanup() {
+	_ = s.traefik.DeleteIngress(authTLSNoRulesIngress)
+	_ = s.traefik.DeleteSecret(authTLSNoRulesCASecretName)
+
+	for _, c := range []*Cluster{s.traefik, s.nginx} {
+		if !waitForDefaultServerReset(s.T(), c, s.host(c)) {
+			s.T().Errorf("[%s] unknown hosts still served by the Ingress without rules after its deletion", c.Name)
+		}
+	}
+}
+
+func (s *AuthTLSNoRulesSuite) host(c *Cluster) string {
+	return authTLSNoRulesUnknownHost + "." + c.Name + ".local"
+}
+
+// TestUnknownHostServesWithoutClientCert checks that a request to a host matching no Ingress,
+// served by the default backend of the Ingress without rules, does not require a client certificate.
+func (s *AuthTLSNoRulesSuite) TestUnknownHostServesWithoutClientCert() {
+	traefikResp := s.traefik.MakeTLSRequest(s.T(), s.host(s.traefik), http.MethodGet, "/", nil, nil, 3, time.Second)
+	nginxResp := s.nginx.MakeTLSRequest(s.T(), s.host(s.nginx), http.MethodGet, "/", nil, nil, 3, time.Second)
+
+	require.NotNil(s.T(), traefikResp, "traefik: unknown host should be served without client certificate")
+	require.NotNil(s.T(), nginxResp, "nginx: unknown host should be served without client certificate")
+
+	assert.Equal(s.T(), http.StatusOK, nginxResp.StatusCode, "nginx: expected 200 on unknown host")
+	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "traefik: expected 200 on unknown host (body: %s)", traefikResp.Body)
 }
