@@ -26,6 +26,7 @@ spec:
     - {{ .Host | quote }}
     secretName: {{ .TLSSecret }}
 {{- end }}
+{{- if not .NoRules }}
   rules:
   - host: {{ .Host | quote }}
     http:
@@ -40,4 +41,5 @@ spec:
               name: {{ .ServicePortName }}
 {{- else }}
               number: {{ .ServicePort }}
+{{- end }}
 {{- end }}
