@@ -273,7 +273,11 @@ func (c *Cluster) MakeTLSRequest(t *testing.T, host, method, path string, header
 		ServerName:         host,
 	}
 	if clientCert != nil {
-		tlsConfig.Certificates = []tls.Certificate{*clientCert}
+		// Present the certificate whichever CAs the server advertises: given it in Certificates, crypto/tls
+		// does not send a certificate that none of them issued, and the server would then see none.
+		tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return clientCert, nil
+		}
 	}
 
 	client := &http.Client{
