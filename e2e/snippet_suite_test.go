@@ -252,6 +252,9 @@ location ~* \.css$ {
     add_header X-Type "css" always;
     return 200 "CSS";
 }
+location ^~ /internal {
+    return 418;
+}
 `,
 	}
 
@@ -1036,6 +1039,32 @@ func (s *SnippetSuite) TestLocationCaseInsensitiveRegexNoMatch() {
 
 	// Both should fall through to the backend.
 	assert.Equal(s.T(), http.StatusOK, traefikResp.StatusCode, "should fall through to backend")
+}
+
+func (s *SnippetSuite) TestLocationPrefixModifier() {
+	// location ^~ /internal is a literal prefix match: the modifier is not part of the path.
+	testCases := []struct {
+		desc       string
+		path       string
+		wantStatus int
+	}{
+		{desc: "matching path", path: "/internal", wantStatus: http.StatusTeapot},
+		{desc: "matching subpath", path: "/internal/status", wantStatus: http.StatusTeapot},
+		{desc: "matching path with query", path: "/internal?check=true", wantStatus: http.StatusTeapot},
+		{desc: "prefix within path segment", path: "/internality", wantStatus: http.StatusTeapot},
+		{desc: "unrelated path", path: "/public", wantStatus: http.StatusOK},
+		{desc: "partial prefix", path: "/intern", wantStatus: http.StatusOK},
+		{desc: "case mismatch", path: "/Internal", wantStatus: http.StatusOK},
+	}
+
+	for _, test := range testCases {
+		s.Run(test.desc, func() {
+			traefikResp, nginxResp := s.requestLocationCI(test.path)
+
+			assert.Equal(s.T(), nginxResp.StatusCode, traefikResp.StatusCode, "status code mismatch")
+			assert.Equal(s.T(), test.wantStatus, traefikResp.StatusCode)
+		})
+	}
 }
 
 // =============================================================================
